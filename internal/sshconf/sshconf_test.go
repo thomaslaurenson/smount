@@ -1,0 +1,328 @@
+package sshconf
+
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+)
+
+func TestTokenise(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{name: "keyword and argument", input: "Host web01", want: []string{"Host", "web01"}},
+		{name: "leading whitespace", input: "    Host web01", want: []string{"Host", "web01"}},
+		{name: "tab separated", input: "\tHost\tweb01", want: []string{"Host", "web01"}},
+		{name: "several arguments", input: "Host a b c", want: []string{"Host", "a", "b", "c"}},
+		{name: "equals separator", input: "Host=web01", want: []string{"Host", "web01"}},
+		{name: "spaced equals separator", input: "Host = web01", want: []string{"Host", "web01"}},
+		{name: "equals inside argument", input: "SetEnv FOO=bar", want: []string{"SetEnv", "FOO=bar"}},
+		{name: "quoted argument", input: `Include "my configs/*"`, want: []string{"Include", "my configs/*"}},
+		{name: "comment", input: "# Host web01", want: nil},
+		{name: "indented comment", input: "   # Host web01", want: nil},
+		{name: "blank", input: "   ", want: nil},
+		{name: "keyword only", input: "Host", want: []string{"Host"}},
+		{name: "trailing comment", input: "Host web01 # my box", want: []string{"Host", "web01"}},
+		{name: "tab before trailing comment", input: "Host web01\t#my box", want: []string{"Host", "web01"}},
+		{name: "comment after the keyword", input: "Host # web01", want: []string{"Host"}},
+		{name: "hash inside an argument", input: "Host web01#1", want: []string{"Host", "web01#1"}},
+		{name: "hash inside quotes", input: `Host "#tag"`, want: []string{"Host", "#tag"}},
+		{name: "hash after a closing quote", input: `Host "a"#b`, want: []string{"Host", "a#b"}},
+		{name: "comment after an equals separator", input: "Host = # web01", want: []string{"Host"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tokenise(tc.input); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("tokenise(%q) = %#v, want %#v", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsConcrete(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		pattern string
+		want    bool
+	}{
+		{name: "plain name", pattern: "web01", want: true},
+		{name: "dotted name", pattern: "web01.example.com", want: true},
+		{name: "star", pattern: "*", want: false},
+		{name: "embedded star", pattern: "web*", want: false},
+		{name: "question mark", pattern: "web0?", want: false},
+		{name: "negated", pattern: "!web01", want: false},
+		{name: "empty", pattern: "", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isConcrete(tc.pattern); got != tc.want {
+				t.Errorf("isConcrete(%q) = %v, want %v", tc.pattern, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAliases(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		files map[string]string
+		want  []string
+	}{
+		{
+			name:  "simple hosts",
+			files: map[string]string{"config": "Host web01\nHost web02\n"},
+			want:  []string{"web01", "web02"},
+		},
+		{
+			name:  "indented host is still a host",
+			files: map[string]string{"config": "Host web01\n    Host web02\n"},
+			want:  []string{"web01", "web02"},
+		},
+		{
+			name:  "several names on one line",
+			files: map[string]string{"config": "Host alpha beta gamma\n"},
+			want:  []string{"alpha", "beta", "gamma"},
+		},
+		{
+			name:  "wildcards and negations omitted",
+			files: map[string]string{"config": "Host *\nHost web01\nHost !bad\nHost web?\n"},
+			want:  []string{"web01"},
+		},
+		{
+			name:  "trailing comments are not host names",
+			files: map[string]string{"config": "Host web01 # my production box\nHost web02\t#staging\n"},
+			want:  []string{"web01", "web02"},
+		},
+		{
+			name: "include with a glob",
+			files: map[string]string{
+				"config":         "Host top\nInclude config.d/*\n",
+				"config.d/work":  "Host work01\n",
+				"config.d/extra": "Host extra01\n",
+			},
+			want: []string{"extra01", "top", "work01"},
+		},
+		{
+			// ssh resolves a relative Include against the directory of the top
+			// level config whichever file it appears in, so "Include two" inside
+			// config.d/one means ./two and never config.d/two.
+			name: "nested relative include resolves against the top level config",
+			files: map[string]string{
+				"config":        "Include config.d/one\n",
+				"config.d/one":  "Host one\nInclude two\n",
+				"two":           "Host two\n",
+				"config.d/two":  "Host beside-the-includer\n",
+				"config.d/none": "Host unreferenced\n",
+			},
+			want: []string{"one", "two"},
+		},
+		{
+			name: "duplicate host across files is listed once",
+			files: map[string]string{
+				"config":       "Host shared\nInclude config.d/a\n",
+				"config.d/a":   "Host shared\n",
+				"config.d/b.x": "",
+			},
+			want: []string{"shared"},
+		},
+		{
+			name:  "include matching nothing is ignored",
+			files: map[string]string{"config": "Host web01\nInclude config.d/*\n"},
+			want:  []string{"web01"},
+		},
+		{
+			name: "include cycle terminates",
+			files: map[string]string{
+				"config":     "Host one\nInclude config.d/a\n",
+				"config.d/a": "Host two\nInclude ../config\n",
+			},
+			want: []string{"one", "two"},
+		},
+		{
+			name:  "comments ignored",
+			files: map[string]string{"config": "# Host commented\nHost real\n"},
+			want:  []string{"real"},
+		},
+		{
+			name:  "equals form",
+			files: map[string]string{"config": "Host=web01\n"},
+			want:  []string{"web01"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := writeTree(t, tc.files)
+
+			got, err := Aliases(filepath.Join(dir, "config"))
+			if err != nil {
+				t.Fatalf("Aliases() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Aliases() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAliasesMissingConfig(t *testing.T) {
+	t.Parallel()
+	if _, err := Aliases(filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Fatal("Aliases() on a missing config = nil error, want an error")
+	}
+}
+
+func TestParseResolved(t *testing.T) {
+	t.Parallel()
+	out := []byte("host web01\n" +
+		"hostname 10.0.0.4\n" +
+		"user deploy\n" +
+		"port 2222\n" +
+		"identityfile ~/.ssh/id_ed25519\n" +
+		"identityfile ~/.ssh/id_rsa\n" +
+		"forwardagent no\n")
+
+	got := parseResolved("web01", out)
+	want := &Host{
+		Name:     "web01",
+		HostName: "10.0.0.4",
+		User:     "deploy",
+		Port:     "2222",
+		Identity: "~/.ssh/id_ed25519",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseResolved() = %+v, want %+v", got, want)
+	}
+}
+
+func TestParseResolvedDefaultsHostName(t *testing.T) {
+	t.Parallel()
+	got := parseResolved("web01", []byte("user deploy\n"))
+	if got.HostName != "web01" {
+		t.Errorf("HostName = %q, want %q", got.HostName, "web01")
+	}
+}
+
+func TestHostAddr(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		host Host
+		want string
+	}{
+		{name: "user and host", host: Host{HostName: "h", User: "u", Port: "22"}, want: "u@h"},
+		{name: "non default port", host: Host{HostName: "h", User: "u", Port: "2222"}, want: "u@h:2222"},
+		{name: "no user", host: Host{HostName: "h", Port: "22"}, want: "h"},
+		{name: "no port", host: Host{HostName: "h", User: "u"}, want: "u@h"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.host.Addr(); got != tc.want {
+				t.Errorf("Addr() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveRejectsFlagLikeAlias(t *testing.T) {
+	t.Parallel()
+	if _, err := Resolve("-oProxyCommand=touch /tmp/pwned"); err != ErrInvalidAlias {
+		t.Errorf("Resolve() error = %v, want %v", err, ErrInvalidAlias)
+	}
+}
+
+func TestHasAlias(t *testing.T) {
+	t.Parallel()
+	dir := writeTree(t, map[string]string{
+		"config": "Host web01\nHost db-prod\nHost *\n",
+	})
+	path := filepath.Join(dir, "config")
+
+	tests := []struct {
+		name   string
+		target string
+		want   bool
+	}{
+		{name: "known alias", target: "web01", want: true},
+		{name: "known alias with a user prefix", target: "root@web01", want: true},
+		{name: "unknown alias", target: "web02", want: false},
+		{name: "unknown alias with a user prefix", target: "root@web02", want: false},
+		{name: "a wildcard pattern is not an alias", target: "*", want: false},
+		{name: "the user part is not matched on its own", target: "web01@db-prod", want: true},
+		{name: "empty", target: "", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := HasAlias(path, tc.target)
+			if err != nil {
+				t.Fatalf("HasAlias(%q) error = %v", tc.target, err)
+			}
+			if got != tc.want {
+				t.Errorf("HasAlias(%q) = %v, want %v", tc.target, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHasAliasReportsAMissingConfig(t *testing.T) {
+	t.Parallel()
+	if _, err := HasAlias(filepath.Join(t.TempDir(), "absent"), "web01"); err == nil {
+		t.Error("HasAlias() on a missing config = nil error, want an error")
+	}
+}
+
+func TestAliasName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "bare host", input: "web01", want: "web01"},
+		{name: "user prefix stripped", input: "root@web01", want: "web01"},
+		{name: "only the first at sign separates", input: "a@b@web01", want: "b@web01"},
+		{name: "empty user", input: "@web01", want: "web01"},
+		{name: "empty", input: "", want: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := aliasName(tc.input); got != tc.want {
+				t.Errorf("aliasName(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+// writeTree creates the given files, relative to a fresh temporary directory,
+// and returns that directory.
+func writeTree(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("creating %s: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", path, err)
+		}
+	}
+	return dir
+}

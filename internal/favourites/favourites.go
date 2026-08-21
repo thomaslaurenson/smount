@@ -1,0 +1,334 @@
+// Package favourites stores named sshfs targets in ~/.smount/favourites.json.
+package favourites
+
+import (
+	"bufio"
+	"cmp"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"unicode"
+
+	"github.com/thomaslaurenson/smount/internal/config"
+)
+
+// Version is the schema version written to the favourites file.
+const Version = 1
+
+const filename = "favourites.json"
+
+// Favourite is a saved mount target.
+//
+// Name, not Host, is what identifies it. Keying on the host is what limited the
+// shell function this replaces to one mount per machine, because two entries
+// for the same host had nothing to tell them apart or to derive distinct mount
+// points from.
+type Favourite struct {
+	Name       string   `json:"name"`
+	Host       string   `json:"host"`
+	Path       string   `json:"path"`
+	Mountpoint string   `json:"mountpoint,omitempty"`
+	Options    []string `json:"options,omitempty"`
+	ReadOnly   bool     `json:"readonly,omitempty"`
+}
+
+// Describe renders the favourite as a one line summary for a menu or a table.
+//
+// A favourite for a remote home directory has no path to show, so it says so
+// rather than trailing a bare colon.
+func (f Favourite) Describe() string {
+	out := f.Host + ":" + f.Path
+	if f.Path == "" {
+		out = f.Host + ": (home)"
+	}
+	if f.ReadOnly {
+		out += " (read only)"
+	}
+	return out
+}
+
+// Store is the on-disk collection of favourites.
+type Store struct {
+	Version    int         `json:"version"`
+	Favourites []Favourite `json:"favourites"`
+}
+
+// Errors reported when looking up or changing favourites.
+var (
+	ErrNotFound    = errors.New("no such favourite")
+	ErrExists      = errors.New("favourite already exists")
+	ErrInvalidName = errors.New("invalid favourite name")
+)
+
+// Path returns the path to the favourites file.
+func Path() (string, error) {
+	dir, err := config.DirPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, filename), nil
+}
+
+// Load reads the favourites file, returning an empty store when none exists.
+func Load() (*Store, error) {
+	path, err := Path()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &Store{Version: Version}, nil
+		}
+		return nil, err
+	}
+
+	s := &Store{}
+	if err := json.Unmarshal(data, s); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	if s.Version == 0 {
+		s.Version = Version
+	}
+	return s, nil
+}
+
+// Save writes the favourites file, creating the directory if needed.
+func Save(s *Store) error {
+	if _, err := config.Dir(); err != nil {
+		return err
+	}
+	path, err := Path()
+	if err != nil {
+		return err
+	}
+	s.Version = Version
+	slices.SortFunc(s.Favourites, func(a, b Favourite) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
+// Get returns the favourite with the given name.
+func (s *Store) Get(name string) (*Favourite, error) {
+	for i := range s.Favourites {
+		if s.Favourites[i].Name == name {
+			return &s.Favourites[i], nil
+		}
+	}
+	return nil, fmt.Errorf("%q: %w", name, ErrNotFound)
+}
+
+// Has reports whether a favourite with the given name exists.
+func (s *Store) Has(name string) bool {
+	_, err := s.Get(name)
+	return err == nil
+}
+
+// Names returns every favourite name, sorted.
+func (s *Store) Names() []string {
+	out := make([]string, 0, len(s.Favourites))
+	for _, f := range s.Favourites {
+		out = append(out, f.Name)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Add appends a favourite, rejecting a name that is already taken.
+func (s *Store) Add(f Favourite) error {
+	if err := ValidName(f.Name); err != nil {
+		return err
+	}
+	if s.Has(f.Name) {
+		return fmt.Errorf("%q: %w", f.Name, ErrExists)
+	}
+	s.Favourites = append(s.Favourites, f)
+	return nil
+}
+
+// Remove deletes the favourite with the given name.
+func (s *Store) Remove(name string) error {
+	for i := range s.Favourites {
+		if s.Favourites[i].Name == name {
+			s.Favourites = slices.Delete(s.Favourites, i, i+1)
+			return nil
+		}
+	}
+	return fmt.Errorf("%q: %w", name, ErrNotFound)
+}
+
+// ValidName reports whether name is usable as a favourite name.
+//
+// A favourite name is accepted as a bare argument to smount, so it has to be
+// distinguishable from a host:path target and safe to use as the last element
+// of a mount point path.
+func ValidName(name string) error {
+	switch {
+	case name == "":
+		return fmt.Errorf("%w: name is empty", ErrInvalidName)
+	case strings.ContainsAny(name, "/\\:"):
+		return fmt.Errorf("%w: %q contains a path or host separator", ErrInvalidName, name)
+	case strings.ContainsAny(name, " \t"):
+		return fmt.Errorf("%w: %q contains whitespace", ErrInvalidName, name)
+	case name == "." || name == "..":
+		return fmt.Errorf("%w: %q is a directory reference", ErrInvalidName, name)
+	case strings.HasPrefix(name, "-"):
+		return fmt.Errorf("%w: %q would be read as a flag", ErrInvalidName, name)
+	case !isASCII(name):
+		return fmt.Errorf("%w: %q is not ASCII", ErrInvalidName, name)
+	}
+	return nil
+}
+
+// isASCII reports whether s is entirely ASCII.
+//
+// A favourite name is one the user invents, and it becomes a directory name
+// under the mount base as well as a label in a menu that is measured in
+// characters. Slug already produces nothing else, so this only constrains a
+// name typed straight into "fav add".
+//
+// Host aliases are deliberately not held to this. They come from a config file
+// smount only reads, and refusing one would hide a host ssh can reach.
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+// Slug converts free text into something ValidName accepts.
+//
+// It derives a favourite name from a label typed at a prompt.
+func Slug(text string) string {
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(text)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_':
+			b.WriteRune(r)
+			lastDash = false
+		default:
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// UniqueName returns base, or base with a numeric suffix when base is taken.
+func (s *Store) UniqueName(base string) string {
+	return s.uniqueName(base, nil)
+}
+
+// uniqueName returns base, or base with a numeric suffix, skipping names the
+// store already holds and names claimed reports as belonging to something else.
+// A nil claimed considers the store alone.
+//
+// The search always terminates: the suffix only produces names of the form
+// "base-2", "base-3" and so on, so claimed may reject base but cannot reject
+// every candidate after it.
+func (s *Store) uniqueName(base string, claimed func(string) bool) string {
+	taken := func(name string) bool {
+		return s.Has(name) || (claimed != nil && claimed(name))
+	}
+	if !taken(base) {
+		return base
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if !taken(candidate) {
+			return candidate
+		}
+	}
+}
+
+// LegacyPath returns the war10ck shell function's favourites file.
+func LegacyPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".war10ck", ".sshfs_favorites"), nil
+}
+
+// MigrateLegacy imports the war10ck shell function's favourites into s.
+//
+// It reports how many were added. The legacy file is left in place, so a
+// migration that picks the wrong names can simply be deleted and redone.
+//
+// The legacy format is one "host|path|label" record per line. A label is free
+// text, so it becomes a slug, and a path of "~" becomes the empty string that
+// smount uses for a remote home directory.
+//
+// claimed reports the names something other than the store already owns, which
+// for smount means its own subcommands. Such a name is suffixed rather than
+// skipped: a favourite named after a subcommand saves cleanly and can then
+// never be mounted, because "smount <name>" resolves the subcommand first.
+func MigrateLegacy(s *Store, path string, claimed func(string) bool) (int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer file.Close()
+
+	added := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, "|", 3)
+		if len(fields) < 2 || fields[0] == "" {
+			continue
+		}
+
+		f := Favourite{Host: fields[0], Path: normaliseLegacyPath(fields[1])}
+		label := ""
+		if len(fields) == 3 {
+			label = fields[2]
+		}
+		name := Slug(label)
+		if name == "" {
+			name = Slug(f.Host)
+		}
+		if name == "" {
+			continue
+		}
+
+		f.Name = s.uniqueName(name, claimed)
+		if err := s.Add(f); err != nil {
+			continue
+		}
+		added++
+	}
+	if err := scanner.Err(); err != nil {
+		return added, err
+	}
+	return added, nil
+}
+
+// normaliseLegacyPath maps the shell function's "~" home marker onto the empty
+// string, which is how smount asks sshfs for the remote home directory.
+func normaliseLegacyPath(path string) string {
+	if path == "~" || path == "~/" {
+		return ""
+	}
+	return path
+}

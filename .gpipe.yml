@@ -1,0 +1,18 @@
+binary: smount
+
+platforms:
+  linux_amd64:
+    path: ./dist/smount-linux-x86_64
+    name: smount-linux-x86_64
+  linux_arm64:
+    path: ./dist/smount-linux-aarch64
+    name: smount-linux-aarch64
+  darwin_amd64:
+    path: ./dist/smount-darwin-x86_64
+    name: smount-darwin-x86_64
+  darwin_arm64:
+    path: ./dist/smount-darwin-aarch64
+    name: smount-darwin-aarch64
+  windows_amd64:
+    path: ./dist/smount-windows-x86_64.exe
+    name: smount-windows-x86_64.exe
