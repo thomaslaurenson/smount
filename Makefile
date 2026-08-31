@@ -11,12 +11,13 @@ GOIMPORTS := go run golang.org/x/tools/cmd/goimports@latest -local $(MODULE)
 
 TAG ?= $(shell git describe --tags --abbrev=0 --match 'v*' 2>/dev/null)
 
+##@ BUILD
+
 .PHONY: help
 help: ## Show this help message
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
+	@awk 'BEGIN {FS = ":.*?## "} /^##@ / {printf "\n%s\n", substr($$0, 5)} \
+		/^[a-zA-Z_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-# BUILD
 .PHONY: build
 build: ## Build the binary for the current platform
 	go build -ldflags="$(LDFLAGS)" -o dist/$(BINARY) .
@@ -25,7 +26,8 @@ build: ## Build the binary for the current platform
 snapshot: ## Build binaries for every platform with goreleaser
 	goreleaser build --snapshot --clean
 
-# LINT
+##@ LINT
+
 .PHONY: format
 format: ## Format Go source files and group their imports
 	$(GOIMPORTS) -w .
@@ -60,7 +62,8 @@ check_all: check_format check_mod vet check_cross ## Run every static check
 vuln: ## Scan dependencies and the standard library for known vulnerabilities
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-# TEST
+##@ TEST
+
 .PHONY: test
 test: ## Run all tests with the race detector
 	go test -race -count=1 ./...
@@ -75,7 +78,8 @@ test_coverage: ## Report test coverage over the internal packages
 	go tool cover -func=coverage.out
 	rm coverage.out
 
-# GET
+##@ GET
+
 .PHONY: get_version
 get_version: ## Print the version build would stamp into the binary
 	@echo "$(VERSION)"
@@ -101,7 +105,8 @@ get_changelog: ## Print release notes for TAG (default: latest tag; override wit
 	fi; \
 	printf '%s\n' "$$notes"
 
-# CI
+##@ CI
+
 .PHONY: ci
 ci: check_all test ## Run every check the lint and test workflows run
 
