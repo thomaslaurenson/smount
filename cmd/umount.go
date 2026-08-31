@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -22,8 +23,8 @@ func (a *App) newUmountCmd() *cobra.Command {
 		Args:              cobra.MaximumNArgs(1),
 		Aliases:           []string{"unmount"},
 		ValidArgsFunction: completeMounts,
-		RunE: func(_ *cobra.Command, args []string) error {
-			return a.runUmount(args, all, force)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return a.runUmount(cmd.Context(), args, all, force)
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "unmount every active sshfs mount")
@@ -32,7 +33,7 @@ func (a *App) newUmountCmd() *cobra.Command {
 	return cmd
 }
 
-func (a *App) runUmount(args []string, all, force bool) error {
+func (a *App) runUmount(ctx context.Context, args []string, all, force bool) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -65,7 +66,7 @@ func (a *App) runUmount(args []string, all, force bool) error {
 			return fmt.Errorf("%s: %w", args[0], err)
 		}
 	} else {
-		target, err = a.pickMount(mounts)
+		target, err = a.pickMount(ctx, mounts)
 		if err != nil {
 			return err
 		}
@@ -103,7 +104,7 @@ func (a *App) umountOne(base string, m mount.Mount, force bool) error {
 }
 
 // pickMount prompts for one of the active mounts.
-func (a *App) pickMount(mounts []mount.Mount) (*mount.Mount, error) {
+func (a *App) pickMount(ctx context.Context, mounts []mount.Mount) (*mount.Mount, error) {
 	items := make([]ui.Item, len(mounts))
 	for i, m := range mounts {
 		detail := m.Source
@@ -113,7 +114,7 @@ func (a *App) pickMount(mounts []mount.Mount) (*mount.Mount, error) {
 		items[i] = ui.Item{Label: m.Name, Detail: detail}
 	}
 
-	idx, err := a.ui.Select("Select a mount to unmount", items)
+	idx, err := a.ui.Select(ctx, "Select a mount to unmount", items)
 	if err != nil {
 		return nil, err
 	}

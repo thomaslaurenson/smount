@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -75,7 +76,7 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 	if len(args) == 1 {
 		spec, fromSaved, err = target.Resolve(cfg, store, args[0], o.target())
 	} else {
-		spec, fromSaved, err = a.specInteractive(cfg, store, o)
+		spec, fromSaved, err = a.specInteractive(cmd.Context(), cfg, store, o)
 	}
 	if err != nil {
 		return err
@@ -142,7 +143,7 @@ func (a *App) warnUnknownHost(cfg *config.Config, host string) {
 }
 
 // specInteractive walks the favourite, host and path prompts.
-func (a *App) specInteractive(cfg *config.Config, store *favourites.Store, o *mountOptions) (mount.Spec, bool, error) {
+func (a *App) specInteractive(ctx context.Context, cfg *config.Config, store *favourites.Store, o *mountOptions) (mount.Spec, bool, error) {
 	if !a.ui.Interactive() {
 		return mount.Spec{}, false, errors.New("no target given and stdin is not a terminal, run 'smount <host>[:<path>]'")
 	}
@@ -154,7 +155,7 @@ func (a *App) specInteractive(cfg *config.Config, store *favourites.Store, o *mo
 		}
 		items = append(items, ui.Item{Label: "New mount", Detail: "choose an SSH host"})
 
-		idx, err := a.ui.Select("Select a favourite", items)
+		idx, err := a.ui.Select(ctx, "Select a favourite", items)
 		if err != nil {
 			return mount.Spec{}, false, err
 		}
@@ -163,11 +164,11 @@ func (a *App) specInteractive(cfg *config.Config, store *favourites.Store, o *mo
 		}
 	}
 
-	host, err := a.pickHost(cfg)
+	host, err := a.pickHost(ctx, cfg)
 	if err != nil {
 		return mount.Spec{}, false, err
 	}
-	path, err := a.pickPath()
+	path, err := a.pickPath(ctx)
 	if err != nil {
 		return mount.Spec{}, false, err
 	}
@@ -175,7 +176,7 @@ func (a *App) specInteractive(cfg *config.Config, store *favourites.Store, o *mo
 }
 
 // pickHost prompts for one of the aliases in the ssh config.
-func (a *App) pickHost(cfg *config.Config) (string, error) {
+func (a *App) pickHost(ctx context.Context, cfg *config.Config) (string, error) {
 	aliases, err := sshconf.Aliases(cfg.SSHConfigPath())
 	if err != nil {
 		return "", err
@@ -193,7 +194,7 @@ func (a *App) pickHost(cfg *config.Config) (string, error) {
 		}
 	}
 
-	idx, err := a.ui.Select("Select an SSH host", items)
+	idx, err := a.ui.Select(ctx, "Select an SSH host", items)
 	if err != nil {
 		return "", err
 	}
@@ -201,13 +202,13 @@ func (a *App) pickHost(cfg *config.Config) (string, error) {
 }
 
 // pickPath prompts for the remote directory to mount.
-func (a *App) pickPath() (string, error) {
+func (a *App) pickPath(ctx context.Context) (string, error) {
 	items := []ui.Item{
 		{Label: "Home directory", Detail: "the remote user's home"},
 		{Label: "Root directory", Detail: "/"},
 		{Label: "Custom path", Detail: "type a remote path"},
 	}
-	idx, err := a.ui.Select("Select the remote directory", items)
+	idx, err := a.ui.Select(ctx, "Select the remote directory", items)
 	if err != nil {
 		return "", err
 	}
