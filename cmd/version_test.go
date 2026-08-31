@@ -1,6 +1,9 @@
 package cmd
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestVersionFrom(t *testing.T) {
 	t.Parallel()
@@ -67,5 +70,23 @@ func TestVersionFrom(t *testing.T) {
 				t.Errorf("versionFrom(%q, %q) = %q, want %q", tc.injected, tc.module, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestVersionCommand is the functional half: the version has to reach stdout,
+// where something can read it back.
+func TestVersionCommand(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	stdout, _, err := run(t, home, "version")
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if !strings.HasPrefix(stdout, "smount version ") {
+		t.Errorf("stdout = %q, want it to start with the binary name and version", stdout)
+	}
+	if !strings.Contains(stdout, Version) {
+		t.Errorf("stdout = %q, want it to carry %q", stdout, Version)
 	}
 }

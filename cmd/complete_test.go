@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -11,30 +9,11 @@ import (
 	"github.com/thomaslaurenson/smount/internal/tilde"
 )
 
-// fakeHome builds a temporary home directory holding an ssh config with two
-// hosts and a favourites file with two entries, and returns an App reading it.
+// fakeHome returns an App reading a home directory with two ssh hosts and two
+// saved favourites, which is what every completer here has to offer.
 func fakeHome(t *testing.T) *App {
 	t.Helper()
-	home := t.TempDir()
-
-	sshDir := filepath.Join(home, ".ssh")
-	if err := os.MkdirAll(sshDir, 0o700); err != nil {
-		t.Fatalf("creating %s: %v", sshDir, err)
-	}
-	ssh := "Host web01\nHost db-prod\n"
-	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(ssh), 0o600); err != nil {
-		t.Fatalf("writing ssh config: %v", err)
-	}
-
-	smountDir := filepath.Join(home, ".smount")
-	if err := os.MkdirAll(smountDir, 0o700); err != nil {
-		t.Fatalf("creating %s: %v", smountDir, err)
-	}
-	favs := `{"version":1,"favourites":[{"name":"logs","host":"web01"},{"name":"backup","host":"db-prod"}]}`
-	if err := os.WriteFile(filepath.Join(smountDir, "favourites.json"), []byte(favs), 0o600); err != nil {
-		t.Fatalf("writing favourites: %v", err)
-	}
-	return &App{home: tilde.Home(home)}
+	return &App{home: tilde.Home(writeHome(t, twoFavourites))}
 }
 
 // cmdWithContext returns the command a completer is handed by cobra. The
