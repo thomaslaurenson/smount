@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	root := cmd.NewRootCmd()
+	root := cmd.NewRootCmd(os.Stdout, os.Stderr)
 	if err := root.Execute(); err != nil {
 		// A cancelled prompt is not a failure. Backing out of a menu is a
 		// normal way to finish, so it is reported and exits zero rather than

@@ -3,6 +3,8 @@
 package cmd
 
 import (
+	"io"
+
 	"github.com/spf13/cobra"
 
 	"github.com/thomaslaurenson/smount/internal/ui"
@@ -46,8 +48,11 @@ func reservedNames(cmd *cobra.Command) map[string]bool {
 // prompt without reaching into internal for the sentinel.
 var ErrCancelled = ui.ErrCancelled
 
-// NewRootCmd builds the command tree.
-func NewRootCmd() *cobra.Command {
+// NewRootCmd builds the command tree, writing output to out and errw.
+//
+// The writers are parameters rather than the process streams so that a test can
+// build the same tree this binary does and read back what it wrote.
+func NewRootCmd(out, errw io.Writer) *cobra.Command {
 	opts := &mountOptions{}
 
 	root := &cobra.Command{
@@ -63,6 +68,8 @@ func NewRootCmd() *cobra.Command {
 			return runMount(cmd, opts, args)
 		},
 	}
+	root.SetOut(out)
+	root.SetErr(errw)
 	opts.register(root)
 
 	root.AddCommand(
