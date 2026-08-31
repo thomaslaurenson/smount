@@ -37,7 +37,7 @@ func (a *App) runUmount(ctx context.Context, args []string, all, force bool) err
 	if err != nil {
 		return err
 	}
-	mounts, err := mount.Active()
+	mounts, err := mount.Active(ctx)
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func (a *App) runUmount(ctx context.Context, args []string, all, force bool) err
 	}
 
 	if all {
-		return a.umountAll(cfg.MountBaseDir(), mounts, force)
+		return a.umountAll(ctx, cfg.MountBaseDir(), mounts, force)
 	}
 
 	var target *mount.Mount
@@ -71,15 +71,15 @@ func (a *App) runUmount(ctx context.Context, args []string, all, force bool) err
 		}
 	}
 
-	return a.umountOne(cfg.MountBaseDir(), *target, force)
+	return a.umountOne(ctx, cfg.MountBaseDir(), *target, force)
 }
 
 // umountAll unmounts everything, reporting failures at the end rather than
 // stopping, so one wedged mount does not strand the rest.
-func (a *App) umountAll(base string, mounts []mount.Mount, force bool) error {
+func (a *App) umountAll(ctx context.Context, base string, mounts []mount.Mount, force bool) error {
 	failed := 0
 	for _, m := range mounts {
-		if err := a.umountOne(base, m, force); err != nil {
+		if err := a.umountOne(ctx, base, m, force); err != nil {
 			a.ui.Warnf("%v", err)
 			failed++
 		}
@@ -90,12 +90,12 @@ func (a *App) umountAll(base string, mounts []mount.Mount, force bool) error {
 	return nil
 }
 
-func (a *App) umountOne(base string, m mount.Mount, force bool) error {
+func (a *App) umountOne(ctx context.Context, base string, m mount.Mount, force bool) error {
 	if m.State != mount.StateOK && !force {
 		a.ui.Warnf("%s is %s, unmounting lazily", m.Name, m.State)
 		force = true
 	}
-	if err := mount.Unmount(m.Target, base, force); err != nil {
+	if err := mount.Unmount(ctx, m.Target, base, force); err != nil {
 		return err
 	}
 	a.ui.Infof("unmounted %s from %s", m.Describe(), a.home.Collapse(m.Target))

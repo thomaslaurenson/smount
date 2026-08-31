@@ -17,7 +17,7 @@ func newLsCmd(home tilde.Home) *cobra.Command {
 		Args:    cobra.NoArgs,
 		Aliases: []string{"status"},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			mounts, err := mount.Active()
+			mounts, err := mount.Active(cmd.Context())
 			if err != nil {
 				return err
 			}

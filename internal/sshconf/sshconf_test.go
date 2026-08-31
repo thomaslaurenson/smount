@@ -239,7 +239,7 @@ func TestHostAddr(t *testing.T) {
 
 func TestResolveRejectsFlagLikeAlias(t *testing.T) {
 	t.Parallel()
-	if _, err := Resolve("-oProxyCommand=touch /tmp/pwned"); err != ErrInvalidAlias {
+	if _, err := Resolve(t.Context(), "-oProxyCommand=touch /tmp/pwned"); err != ErrInvalidAlias {
 		t.Errorf("Resolve() error = %v, want %v", err, ErrInvalidAlias)
 	}
 }

@@ -2,6 +2,7 @@
 package mount
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -144,7 +145,7 @@ func SSHFSPath() (string, error) {
 // Pass the process's own files here rather than a wrapper around them. os/exec
 // hands a *os.File to the child as a descriptor and gives anything else a pipe,
 // and ssh behaves differently when its input is not a terminal.
-func Run(s Spec, in io.Reader, out, errw io.Writer) error {
+func Run(ctx context.Context, s Spec, in io.Reader, out, errw io.Writer) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -152,12 +153,12 @@ func Run(s Spec, in io.Reader, out, errw io.Writer) error {
 	if err != nil {
 		return err
 	}
-	created, err := PrepareTarget(s.Target)
+	created, err := PrepareTarget(ctx, s.Target)
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(bin, s.Args()...)
+	cmd := exec.CommandContext(ctx, bin, s.Args()...)
 	cmd.Stdin = in
 	cmd.Stdout = out
 	cmd.Stderr = errw
@@ -185,7 +186,7 @@ func Run(s Spec, in io.Reader, out, errw io.Writer) error {
 //
 // The created flag exists so a failed mount only removes a directory this call
 // made. An empty directory that was already there is somebody else's.
-func PrepareTarget(target string) (created bool, err error) {
+func PrepareTarget(ctx context.Context, target string) (created bool, err error) {
 	info, err := os.Stat(target)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -201,7 +202,7 @@ func PrepareTarget(target string) (created bool, err error) {
 		return false, fmt.Errorf("%s: exists and is not a directory", target)
 	}
 
-	if _, err := Find(target); err == nil {
+	if _, err := Find(ctx, target); err == nil {
 		return false, fmt.Errorf("%s: %w", target, ErrAlreadyMounted)
 	}
 
@@ -278,13 +279,13 @@ func forceUnmountFlag() string {
 //
 // force detaches a mount whose connection has dropped, which a normal unmount
 // of one blocks on.
-func Unmount(target, base string, force bool) error {
+func Unmount(ctx context.Context, target, base string, force bool) error {
 	bin, args, err := UnmountTool(force)
 	if err != nil {
 		return err
 	}
 
-	out, err := exec.Command(bin, append(args, target)...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, bin, append(args, target)...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {

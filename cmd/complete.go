@@ -79,11 +79,11 @@ func (a *App) completeHosts(_ *cobra.Command, args []string, toComplete string) 
 }
 
 // completeMounts offers the names of active mounts for a first argument.
-func completeMounts(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func completeMounts(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	mounts, err := mount.Active()
+	mounts, err := mount.Active(cmd.Context())
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

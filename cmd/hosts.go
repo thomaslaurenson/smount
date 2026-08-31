@@ -37,7 +37,7 @@ func (a *App) newHostsCmd() *cobra.Command {
 				return nil
 			}
 
-			resolved := sshconf.ResolveAll(aliases)
+			resolved := sshconf.ResolveAll(cmd.Context(), aliases)
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "HOST\tRESOLVES TO\tIDENTITY")
 			for _, alias := range aliases {

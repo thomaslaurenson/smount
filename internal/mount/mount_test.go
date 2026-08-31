@@ -317,7 +317,7 @@ func TestPrepareTarget(t *testing.T) {
 	t.Run("creates a missing directory and reports it", func(t *testing.T) {
 		t.Parallel()
 		target := filepath.Join(t.TempDir(), "web01")
-		created, err := PrepareTarget(target)
+		created, err := PrepareTarget(t.Context(), target)
 		if err != nil {
 			t.Fatalf("PrepareTarget() error = %v", err)
 		}
@@ -331,7 +331,7 @@ func TestPrepareTarget(t *testing.T) {
 
 	t.Run("accepts an existing empty directory without claiming it", func(t *testing.T) {
 		t.Parallel()
-		created, err := PrepareTarget(t.TempDir())
+		created, err := PrepareTarget(t.Context(), t.TempDir())
 		if err != nil {
 			t.Errorf("PrepareTarget() error = %v, want nil", err)
 		}
@@ -346,7 +346,7 @@ func TestPrepareTarget(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "keep"), []byte("data"), 0o600); err != nil {
 			t.Fatalf("writing test file: %v", err)
 		}
-		if _, err := PrepareTarget(dir); !errors.Is(err, ErrTargetNotEmpty) {
+		if _, err := PrepareTarget(t.Context(), dir); !errors.Is(err, ErrTargetNotEmpty) {
 			t.Errorf("PrepareTarget() error = %v, want %v", err, ErrTargetNotEmpty)
 		}
 	})
@@ -357,7 +357,7 @@ func TestPrepareTarget(t *testing.T) {
 		if err := os.WriteFile(path, nil, 0o600); err != nil {
 			t.Fatalf("writing test file: %v", err)
 		}
-		if _, err := PrepareTarget(path); err == nil {
+		if _, err := PrepareTarget(t.Context(), path); err == nil {
 			t.Error("PrepareTarget() on a file = nil error, want an error")
 		}
 	})
@@ -524,7 +524,7 @@ func TestSpecValidate(t *testing.T) {
 func TestRunRejectsFlagLikeHostBeforeExec(t *testing.T) {
 	t.Parallel()
 	spec := Spec{Host: "-oProxyCommand=id", Target: filepath.Join(t.TempDir(), "x")}
-	err := Run(spec, nil, io.Discard, io.Discard)
+	err := Run(t.Context(), spec, nil, io.Discard, io.Discard)
 	if !errors.Is(err, ErrFlagLikeArgument) {
 		t.Errorf("Run() error = %v, want %v", err, ErrFlagLikeArgument)
 	}

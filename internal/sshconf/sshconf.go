@@ -13,6 +13,7 @@ package sshconf
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -291,12 +292,12 @@ func expandUser(path, home string) string {
 // it would only ever line up the displayed settings anyway: sshfs runs its own
 // ssh, which reads the default configuration no matter what smount was told to
 // read.
-func Resolve(alias string) (*Host, error) {
+func Resolve(ctx context.Context, alias string) (*Host, error) {
 	if strings.HasPrefix(alias, "-") {
 		return nil, ErrInvalidAlias
 	}
 
-	cmd := exec.Command("ssh", "-G", alias)
+	cmd := exec.CommandContext(ctx, "ssh", "-G", alias)
 	out, err := cmd.Output()
 	if err != nil {
 		var exit *exec.ExitError
@@ -313,7 +314,7 @@ func Resolve(alias string) (*Host, error) {
 // Aliases that fail are omitted rather than reported. This exists to decorate a
 // list of hosts with where each one actually points, and a host whose config
 // ssh will not read is still a host worth showing by name.
-func ResolveAll(aliases []string) map[string]*Host {
+func ResolveAll(ctx context.Context, aliases []string) map[string]*Host {
 	var (
 		mu      sync.Mutex
 		wg      sync.WaitGroup
@@ -330,7 +331,7 @@ func ResolveAll(aliases []string) map[string]*Host {
 		go func() {
 			defer wg.Done()
 			for alias := range work {
-				host, err := Resolve(alias)
+				host, err := Resolve(ctx, alias)
 				if err != nil {
 					continue
 				}
@@ -341,7 +342,15 @@ func ResolveAll(aliases []string) map[string]*Host {
 		}()
 	}
 	for _, alias := range aliases {
-		work <- alias
+		select {
+		case <-ctx.Done():
+			// Stop handing out work; the workers drain what they have and the
+			// map is returned with whatever was resolved before the interrupt.
+			close(work)
+			wg.Wait()
+			return results
+		case work <- alias:
+		}
 	}
 	close(work)
 	wg.Wait()

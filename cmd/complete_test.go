@@ -37,6 +37,16 @@ func fakeHome(t *testing.T) *App {
 	return &App{home: tilde.Home(home)}
 }
 
+// cmdWithContext returns the command a completer is handed by cobra. The
+// context is the part that matters: a completer that lists mounts runs a
+// subprocess with it.
+func cmdWithContext(t *testing.T) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{}
+	cmd.SetContext(t.Context())
+	return cmd
+}
+
 // TestCompleteHostsOnlyCompletesTheTargetArgument is the guard for the argument
 // position. "fav add" takes a new name then a host, and offering host aliases
 // for the name slot proposes names for something that does not exist yet.
@@ -66,7 +76,7 @@ func TestCompleteHostsOnlyCompletesTheTargetArgument(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, directive := a.completeHosts(nil, tc.args, tc.toComplete)
+			got, directive := a.completeHosts(cmdWithContext(t), tc.args, tc.toComplete)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("completeHosts(%v, %q) = %v, want %v", tc.args, tc.toComplete, got, tc.want)
 			}
@@ -101,7 +111,7 @@ func TestCompleteTargets(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, directive := a.completeTargets(nil, tc.args, tc.toComplete)
+			got, directive := a.completeTargets(cmdWithContext(t), tc.args, tc.toComplete)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("completeTargets(%v, %q) = %v, want %v", tc.args, tc.toComplete, got, tc.want)
 			}
@@ -129,7 +139,7 @@ func TestCompleteFavourites(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, directive := a.completeFavourites(nil, tc.args, tc.toComplete)
+			got, directive := a.completeFavourites(cmdWithContext(t), tc.args, tc.toComplete)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("completeFavourites(%v, %q) = %v, want %v", tc.args, tc.toComplete, got, tc.want)
 			}
@@ -144,7 +154,7 @@ func TestCompleteMountsTakesOneArgument(t *testing.T) {
 	t.Parallel()
 
 	// No fake home: completeMounts reads the mount table, not the config.
-	got, directive := completeMounts(nil, []string{"already"}, "")
+	got, directive := completeMounts(cmdWithContext(t), []string{"already"}, "")
 	if got != nil {
 		t.Errorf("completeMounts() past the last argument = %v, want nothing", got)
 	}
@@ -173,7 +183,7 @@ func TestCompletersNeverFallBackToFilenames(t *testing.T) {
 	for name, complete := range completers {
 		t.Run(name, func(t *testing.T) {
 			for _, args := range [][]string{nil, {"one"}, {"one", "two"}} {
-				_, directive := complete(nil, args, "")
+				_, directive := complete(cmdWithContext(t), args, "")
 				if directive&cobra.ShellCompDirectiveError != 0 {
 					t.Errorf("%s(%v) returned ShellCompDirectiveError, want no filename fallback", name, args)
 				}

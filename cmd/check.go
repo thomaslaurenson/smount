@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -20,7 +21,7 @@ func (a *App) newCheckCmd() *cobra.Command {
 		Short: "Check that everything smount needs is present and working",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCheck(cmd.OutOrStdout(), a.home)
+			return runCheck(cmd.Context(), cmd.OutOrStdout(), a.home)
 		},
 	}
 }
@@ -35,7 +36,7 @@ type result struct {
 // runCheck reports on the environment and fails only when something would stop
 // a mount from working. A missing favourites file or an empty mount base are
 // normal on a new install, so they are reported without failing.
-func runCheck(out io.Writer, home tilde.Home) error {
+func runCheck(ctx context.Context, out io.Writer, home tilde.Home) error {
 	var checks []result
 
 	checks = append(checks, binaryCheck("sshfs", "required to mount anything"))
@@ -56,7 +57,7 @@ func runCheck(out io.Writer, home tilde.Home) error {
 
 	checks = append(checks, sshConfigCheck(home, cfg))
 	checks = append(checks, mountBaseCheck(home, cfg))
-	checks = append(checks, mountsCheck()...)
+	checks = append(checks, mountsCheck(ctx)...)
 
 	failed := 0
 	for _, c := range checks {
@@ -119,8 +120,8 @@ func mountBaseCheck(home tilde.Home, cfg *config.Config) result {
 
 // mountsCheck reports the active mounts, and flags stale ones because they need
 // a forced unmount before the mount point can be reused.
-func mountsCheck() []result {
-	mounts, err := mount.Active()
+func mountsCheck(ctx context.Context) []result {
+	mounts, err := mount.Active(ctx)
 	if err != nil {
 		return []result{{name: "mounts", detail: err.Error(), failed: true}}
 	}

@@ -95,7 +95,7 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 
 	// A host ssh cannot resolve is still worth trying to mount, since sshfs
 	// gives a better diagnostic for it than anything reconstructed here.
-	host, err := sshconf.Resolve(spec.Host)
+	host, err := sshconf.Resolve(cmd.Context(), spec.Host)
 	if err != nil {
 		host = nil
 	}
@@ -115,7 +115,7 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 		}
 	}
 
-	if err := mount.Run(spec, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+	if err := mount.Run(cmd.Context(), spec, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 		return err
 	}
 	a.ui.Infof("mounted %s at %s", spec.Describe(), a.home.Collapse(spec.Target))
@@ -185,7 +185,7 @@ func (a *App) pickHost(ctx context.Context, cfg *config.Config) (string, error) 
 		return "", fmt.Errorf("no hosts found in %s", cfg.SSHConfig)
 	}
 
-	resolved := sshconf.ResolveAll(aliases)
+	resolved := sshconf.ResolveAll(ctx, aliases)
 	items := make([]ui.Item, len(aliases))
 	for i, alias := range aliases {
 		items[i] = ui.Item{Label: alias}
