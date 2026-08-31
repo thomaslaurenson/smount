@@ -5,6 +5,10 @@ MODULE  := github.com/thomaslaurenson/smount
 VERSION := $(shell git describe --tags --always --dirty --match 'v*' 2>/dev/null || echo "dev")
 LDFLAGS := -s -w -X $(MODULE)/cmd.Version=$(VERSION)
 
+# goimports formats exactly as gofmt does and groups imports as well, which
+# gofmt will not do: it sorts every import into one alphabetical block.
+GOIMPORTS := go run golang.org/x/tools/cmd/goimports@latest -local $(MODULE)
+
 TAG ?= $(shell git describe --tags --abbrev=0 --match 'v*' 2>/dev/null)
 
 .PHONY: help
@@ -23,12 +27,12 @@ snapshot: ## Build binaries for every platform with goreleaser
 
 # LINT
 .PHONY: format
-format: ## Format Go source files
-	gofmt -w .
+format: ## Format Go source files and group their imports
+	$(GOIMPORTS) -w .
 
 .PHONY: check_format
-check_format: ## Fail if any Go source file is unformatted
-	@out="$$(gofmt -l .)"; \
+check_format: ## Fail if any Go source file is unformatted or has ungrouped imports
+	@out="$$($(GOIMPORTS) -l .)"; \
 	if [[ -n "$$out" ]]; then \
 	  printf 'Unformatted Go files:\n%s\n' "$$out"; \
 	  exit 1; \
