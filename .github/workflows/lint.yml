@@ -16,8 +16,4 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - run: make check_format
-
-      - run: make check_mod
-
-      - run: make vet
+      - run: make check_all
