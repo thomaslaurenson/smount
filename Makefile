@@ -46,6 +46,10 @@ vet: ## Run go vet
 .PHONY: lint
 lint: fmt_check mod_check vet ## Run every lint check
 
+.PHONY: vuln
+vuln: ## Scan dependencies and the standard library for known vulnerabilities
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 # TEST
 .PHONY: test
 test: ## Run all tests with the race detector
