@@ -78,7 +78,7 @@ func NewRootCmd(out, errw io.Writer) *cobra.Command {
 		newHostsCmd(),
 		newFavCmd(),
 		newCheckCmd(),
-		versionCmd,
+		newVersionCmd(),
 	)
 	return root
 }
