@@ -3,8 +3,6 @@
 package cmd
 
 import (
-	"errors"
-
 	"github.com/spf13/cobra"
 
 	"github.com/thomaslaurenson/smount/internal/ui"
@@ -42,21 +40,14 @@ func reservedNames(cmd *cobra.Command) map[string]bool {
 	return names
 }
 
-// Execute runs the command line interface.
+// ErrCancelled is reported when the user backs out of a prompt.
 //
-// A cancelled prompt is not a failure. Backing out of a menu is a normal way to
-// finish, so it is reported and exits zero rather than being passed up as an
-// error the entry point would print and exit one for.
-func Execute() error {
-	err := newRootCmd().Execute()
-	if errors.Is(err, ui.ErrCancelled) {
-		ui.Infof("cancelled")
-		return nil
-	}
-	return err
-}
+// It is re-exported from ui so that the entry point can recognise a cancelled
+// prompt without reaching into internal for the sentinel.
+var ErrCancelled = ui.ErrCancelled
 
-func newRootCmd() *cobra.Command {
+// NewRootCmd builds the command tree.
+func NewRootCmd() *cobra.Command {
 	opts := &mountOptions{}
 
 	root := &cobra.Command{

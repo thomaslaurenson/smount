@@ -5,6 +5,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -12,7 +13,15 @@ import (
 )
 
 func main() {
-	if err := cmd.Execute(); err != nil {
+	root := cmd.NewRootCmd()
+	if err := root.Execute(); err != nil {
+		// A cancelled prompt is not a failure. Backing out of a menu is a
+		// normal way to finish, so it is reported and exits zero rather than
+		// being printed as an error.
+		if errors.Is(err, cmd.ErrCancelled) {
+			fmt.Fprintln(os.Stderr, "[*] cancelled")
+			return
+		}
 		fmt.Fprintf(os.Stderr, "smount: %v\n", err)
 		os.Exit(1)
 	}
