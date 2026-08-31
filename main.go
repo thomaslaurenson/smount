@@ -19,7 +19,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	root := cmd.NewRootCmd(os.Stdout, os.Stderr)
+	root := cmd.NewRootCmd(os.Stdin, os.Stdout, os.Stderr)
 	if err := root.ExecuteContext(ctx); err != nil {
 		// Asked of the context rather than the error, because a cancelled
 		// operation reports its own symptom instead of the cancellation: a

@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -48,11 +49,23 @@ func reservedNames(cmd *cobra.Command) map[string]bool {
 // prompt without reaching into internal for the sentinel.
 var ErrCancelled = ui.ErrCancelled
 
-// NewRootCmd builds the command tree, writing output to out and errw.
+// App holds the dependencies every subcommand shares.
+type App struct {
+	ui *ui.UI
+}
+
+// NewRootCmd builds the command tree, reading answers from in and writing
+// output to out and errw.
 //
-// The writers are parameters rather than the process streams so that a test can
+// The streams are parameters rather than the process ones so that a test can
 // build the same tree this binary does and read back what it wrote.
-func NewRootCmd(out, errw io.Writer) *cobra.Command {
+//
+// Whether smount may prompt is settled here, once, and handed to the UI.
+// os.Stderr is asked directly because the question is about the process: a
+// prompt is drawn on the real error stream or not at all, whatever errw is
+// wrapped in.
+func NewRootCmd(in *os.File, out, errw io.Writer) *cobra.Command {
+	a := &App{ui: ui.New(in, errw, ui.IsTerminal(in, os.Stderr))}
 	opts := &mountOptions{}
 
 	root := &cobra.Command{
@@ -65,7 +78,7 @@ func NewRootCmd(out, errw io.Writer) *cobra.Command {
 		Version:           Version,
 		ValidArgsFunction: completeTargets,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMount(cmd, opts, args)
+			return a.runMount(cmd, opts, args)
 		},
 	}
 	root.SetOut(out)
@@ -74,9 +87,9 @@ func NewRootCmd(out, errw io.Writer) *cobra.Command {
 
 	root.AddCommand(
 		newLsCmd(),
-		newUmountCmd(),
+		a.newUmountCmd(),
 		newHostsCmd(),
-		newFavCmd(),
+		a.newFavCmd(),
 		newCheckCmd(),
 		newVersionCmd(),
 	)

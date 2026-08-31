@@ -44,7 +44,7 @@ func (o *mountOptions) target() target.Options {
 }
 
 // runMount is the root command's action: resolve a target, confirm it, mount it.
-func runMount(cmd *cobra.Command, o *mountOptions, args []string) error {
+func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error {
 	// Checked before anything is loaded or asked. sshfs is the whole point of
 	// smount, so learning it is missing after picking a host, a path and
 	// answering a confirmation wastes every one of those answers.
@@ -56,7 +56,7 @@ func runMount(cmd *cobra.Command, o *mountOptions, args []string) error {
 		if !o.dryRun {
 			return err
 		}
-		ui.Warnf("%v, so this command cannot be run here", err)
+		a.ui.Warnf("%v, so this command cannot be run here", err)
 	}
 
 	cfg, err := config.Load()
@@ -75,7 +75,7 @@ func runMount(cmd *cobra.Command, o *mountOptions, args []string) error {
 	if len(args) == 1 {
 		spec, fromSaved, err = target.Resolve(cfg, store, args[0], o.target())
 	} else {
-		spec, fromSaved, err = specInteractive(cfg, store, o)
+		spec, fromSaved, err = a.specInteractive(cfg, store, o)
 	}
 	if err != nil {
 		return err
@@ -89,7 +89,7 @@ func runMount(cmd *cobra.Command, o *mountOptions, args []string) error {
 	}
 
 	if !fromSaved && len(args) == 1 {
-		warnUnknownHost(cfg, spec.Host)
+		a.warnUnknownHost(cfg, spec.Host)
 	}
 
 	// A host ssh cannot resolve is still worth trying to mount, since sshfs
@@ -104,8 +104,8 @@ func runMount(cmd *cobra.Command, o *mountOptions, args []string) error {
 		fmt.Fprintln(cmd.OutOrStdout(), spec.CommandLine())
 		return nil
 	}
-	if !o.yes && ui.Interactive() {
-		proceed, err := ui.Confirm("Proceed with mount?", true)
+	if !o.yes && a.ui.Interactive() {
+		proceed, err := a.ui.Confirm("Proceed with mount?", true)
 		if err != nil {
 			return err
 		}
@@ -117,10 +117,10 @@ func runMount(cmd *cobra.Command, o *mountOptions, args []string) error {
 	if err := mount.Run(spec); err != nil {
 		return err
 	}
-	ui.Infof("mounted %s at %s", spec.Describe(), tilde.Collapse(spec.Target))
+	a.ui.Infof("mounted %s at %s", spec.Describe(), tilde.Collapse(spec.Target))
 
-	if !fromSaved && !o.noSave && ui.Interactive() {
-		return offerToSave(cmd, cfg, store, spec, o)
+	if !fromSaved && !o.noSave && a.ui.Interactive() {
+		return a.offerToSave(cmd, cfg, store, spec, o)
 	}
 	return nil
 }
@@ -133,17 +133,17 @@ func runMount(cmd *cobra.Command, o *mountOptions, args []string) error {
 // "ssh -G" echoes an unknown name straight back as its own hostname, so the
 // summary prints a confident "Resolves to" line for a name nothing knows, and a
 // typo looks exactly like a configured host.
-func warnUnknownHost(cfg *config.Config, host string) {
+func (a *App) warnUnknownHost(cfg *config.Config, host string) {
 	known, err := sshconf.HasAlias(cfg.SSHConfigPath(), host)
 	if err != nil || known {
 		return
 	}
-	ui.Warnf("%s is not a saved favourite or a host in %s", host, cfg.SSHConfig)
+	a.ui.Warnf("%s is not a saved favourite or a host in %s", host, cfg.SSHConfig)
 }
 
 // specInteractive walks the favourite, host and path prompts.
-func specInteractive(cfg *config.Config, store *favourites.Store, o *mountOptions) (mount.Spec, bool, error) {
-	if !ui.Interactive() {
+func (a *App) specInteractive(cfg *config.Config, store *favourites.Store, o *mountOptions) (mount.Spec, bool, error) {
+	if !a.ui.Interactive() {
 		return mount.Spec{}, false, errors.New("no target given and stdin is not a terminal, run 'smount <host>[:<path>]'")
 	}
 
@@ -154,7 +154,7 @@ func specInteractive(cfg *config.Config, store *favourites.Store, o *mountOption
 		}
 		items = append(items, ui.Item{Label: "New mount", Detail: "choose an SSH host"})
 
-		idx, err := ui.Select("Select a favourite", items)
+		idx, err := a.ui.Select("Select a favourite", items)
 		if err != nil {
 			return mount.Spec{}, false, err
 		}
@@ -163,11 +163,11 @@ func specInteractive(cfg *config.Config, store *favourites.Store, o *mountOption
 		}
 	}
 
-	host, err := pickHost(cfg)
+	host, err := a.pickHost(cfg)
 	if err != nil {
 		return mount.Spec{}, false, err
 	}
-	path, err := pickPath()
+	path, err := a.pickPath()
 	if err != nil {
 		return mount.Spec{}, false, err
 	}
@@ -175,7 +175,7 @@ func specInteractive(cfg *config.Config, store *favourites.Store, o *mountOption
 }
 
 // pickHost prompts for one of the aliases in the ssh config.
-func pickHost(cfg *config.Config) (string, error) {
+func (a *App) pickHost(cfg *config.Config) (string, error) {
 	aliases, err := sshconf.Aliases(cfg.SSHConfigPath())
 	if err != nil {
 		return "", err
@@ -193,7 +193,7 @@ func pickHost(cfg *config.Config) (string, error) {
 		}
 	}
 
-	idx, err := ui.Select("Select an SSH host", items)
+	idx, err := a.ui.Select("Select an SSH host", items)
 	if err != nil {
 		return "", err
 	}
@@ -201,13 +201,13 @@ func pickHost(cfg *config.Config) (string, error) {
 }
 
 // pickPath prompts for the remote directory to mount.
-func pickPath() (string, error) {
+func (a *App) pickPath() (string, error) {
 	items := []ui.Item{
 		{Label: "Home directory", Detail: "the remote user's home"},
 		{Label: "Root directory", Detail: "/"},
 		{Label: "Custom path", Detail: "type a remote path"},
 	}
-	idx, err := ui.Select("Select the remote directory", items)
+	idx, err := a.ui.Select("Select the remote directory", items)
 	if err != nil {
 		return "", err
 	}
@@ -219,7 +219,7 @@ func pickPath() (string, error) {
 		return "/", nil
 	}
 
-	path, err := ui.Line("Remote path: ")
+	path, err := a.ui.Line("Remote path: ")
 	if err != nil {
 		return "", err
 	}
@@ -254,15 +254,15 @@ func displayPath(path string) string {
 //
 // Nothing here fails the command. The mount already succeeded, so a favourite
 // that could not be written is worth a warning and nothing more.
-func offerToSave(cmd *cobra.Command, cfg *config.Config, store *favourites.Store, spec mount.Spec, o *mountOptions) error {
-	save, err := ui.Confirm("Save this as a favourite?", false)
+func (a *App) offerToSave(cmd *cobra.Command, cfg *config.Config, store *favourites.Store, spec mount.Spec, o *mountOptions) error {
+	save, err := a.ui.Confirm("Save this as a favourite?", false)
 	if err != nil || !save {
 		// A declined or cancelled prompt here leaves a working mount behind, so
 		// it is not worth failing the command over.
 		return nil
 	}
 
-	label, err := ui.Line("Favourite name: ")
+	label, err := a.ui.Line("Favourite name: ")
 	if err != nil {
 		return nil
 	}
@@ -271,20 +271,20 @@ func offerToSave(cmd *cobra.Command, cfg *config.Config, store *favourites.Store
 		name = favourites.Slug(spec.Host)
 	}
 	if err := checkFavouriteName(cmd, name); err != nil {
-		ui.Warnf("not saved: %v", err)
+		a.ui.Warnf("not saved: %v", err)
 		return nil
 	}
 	name = store.UniqueName(name)
 
 	if err := store.Add(target.FavouriteFor(cfg, spec, name, o.target())); err != nil {
-		ui.Warnf("not saved: %v", err)
+		a.ui.Warnf("not saved: %v", err)
 		return nil
 	}
 	if err := favourites.Save(store); err != nil {
-		ui.Warnf("not saved: %v", err)
+		a.ui.Warnf("not saved: %v", err)
 		return nil
 	}
-	ui.Infof("saved favourite %q", name)
+	a.ui.Infof("saved favourite %q", name)
 	return nil
 }
 

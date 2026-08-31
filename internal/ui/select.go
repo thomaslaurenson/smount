@@ -41,19 +41,20 @@ type Item struct {
 	Detail string
 }
 
-// Select shows a filterable list on stderr and returns the chosen index.
+// Select shows a filterable list on the output stream and returns the chosen
+// index.
 //
 // The index is into the original slice. It reports ErrCancelled if the user
 // backs out.
-func Select(title string, items []Item) (int, error) {
+func (u *UI) Select(title string, items []Item) (int, error) {
 	if len(items) == 0 {
 		return -1, ErrNoItems
 	}
-	if !Interactive() {
+	if !u.Interactive() {
 		return -1, ErrNotTerminal
 	}
 
-	fd := int(os.Stdin.Fd())
+	fd := u.fd
 	state, err := term.MakeRaw(fd)
 	if err != nil {
 		return -1, err
@@ -65,8 +66,8 @@ func Select(title string, items []Item) (int, error) {
 	s := &selector{
 		title: title,
 		items: items,
-		in:    input,
-		out:   output,
+		in:    u.in,
+		out:   u.out,
 	}
 	s.measure(fd)
 	s.refilter()

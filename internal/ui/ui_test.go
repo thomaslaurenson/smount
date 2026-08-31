@@ -1,30 +1,37 @@
 package ui
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
-// These tests replace the package streams, which is process wide state, so they
-// do not call t.Parallel().
-
-// withStreams points the package streams at in, captures what is written, and
-// forces prompting on so a test with no terminal can still run one.
-func withStreams(t *testing.T, in string) *bytes.Buffer {
+// newTestUI builds a UI that reads in as its answers and captures what it
+// draws, with prompting forced on so a test with no terminal can still run one.
+//
+// The answers go through a real file because New takes one: the filterable list
+// needs a descriptor to put into raw mode, which no in-memory reader has.
+func newTestUI(t *testing.T, in string) (*UI, *bytes.Buffer) {
 	t.Helper()
-	t.Cleanup(ResetForTesting)
+
+	path := filepath.Join(t.TempDir(), "answers")
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatalf("writing answers: %v", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("opening answers: %v", err)
+	}
+	t.Cleanup(func() { f.Close() })
 
 	buf := &bytes.Buffer{}
-	output = buf
-	input = bufio.NewReader(strings.NewReader(in))
-	isTerminal = func() bool { return true }
-	return buf
+	return New(f, buf, true), buf
 }
 
 func TestConfirm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		answer string
@@ -48,9 +55,10 @@ func TestConfirm(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			withStreams(t, tc.answer)
+			t.Parallel()
+			u, _ := newTestUI(t, tc.answer)
 
-			got, err := Confirm("Proceed?", tc.def)
+			got, err := u.Confirm("Proceed?", tc.def)
 			if err != nil {
 				t.Fatalf("Confirm() error = %v", err)
 			}
@@ -62,6 +70,7 @@ func TestConfirm(t *testing.T) {
 }
 
 func TestConfirmShowsWhichAnswerIsTheDefault(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		def  bool
@@ -73,9 +82,10 @@ func TestConfirmShowsWhichAnswerIsTheDefault(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			buf := withStreams(t, "\n")
+			t.Parallel()
+			u, buf := newTestUI(t, "\n")
 
-			if _, err := Confirm("Proceed?", tc.def); err != nil {
+			if _, err := u.Confirm("Proceed?", tc.def); err != nil {
 				t.Fatalf("Confirm() error = %v", err)
 			}
 			if got := buf.String(); got != tc.want {
@@ -86,14 +96,16 @@ func TestConfirmShowsWhichAnswerIsTheDefault(t *testing.T) {
 }
 
 func TestConfirmCancelsOnNoInput(t *testing.T) {
-	withStreams(t, "")
+	t.Parallel()
+	u, _ := newTestUI(t, "")
 
-	if _, err := Confirm("Proceed?", true); !errors.Is(err, ErrCancelled) {
+	if _, err := u.Confirm("Proceed?", true); !errors.Is(err, ErrCancelled) {
 		t.Errorf("Confirm() on empty input error = %v, want %v", err, ErrCancelled)
 	}
 }
 
 func TestLine(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -110,9 +122,10 @@ func TestLine(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			withStreams(t, tc.input)
+			t.Parallel()
+			u, _ := newTestUI(t, tc.input)
 
-			got, err := Line("Remote path: ")
+			got, err := u.Line("Remote path: ")
 			if err != nil {
 				t.Fatalf("Line() error = %v", err)
 			}
@@ -124,9 +137,10 @@ func TestLine(t *testing.T) {
 }
 
 func TestLineWritesThePrompt(t *testing.T) {
-	buf := withStreams(t, "answer\n")
+	t.Parallel()
+	u, buf := newTestUI(t, "answer\n")
 
-	if _, err := Line("Remote path: "); err != nil {
+	if _, err := u.Line("Remote path: "); err != nil {
 		t.Fatalf("Line() error = %v", err)
 	}
 	if got := buf.String(); got != "Remote path: " {
@@ -135,18 +149,20 @@ func TestLineWritesThePrompt(t *testing.T) {
 }
 
 func TestLineCancelsOnNoInput(t *testing.T) {
-	withStreams(t, "")
+	t.Parallel()
+	u, _ := newTestUI(t, "")
 
-	if _, err := Line("Remote path: "); !errors.Is(err, ErrCancelled) {
+	if _, err := u.Line("Remote path: "); !errors.Is(err, ErrCancelled) {
 		t.Errorf("Line() on empty input error = %v, want %v", err, ErrCancelled)
 	}
 }
 
 func TestLineRefusesWithoutATerminal(t *testing.T) {
-	withStreams(t, "answer\n")
-	isTerminal = func() bool { return false }
+	t.Parallel()
+	u, _ := newTestUI(t, "answer\n")
+	u.interactive = false
 
-	if _, err := Line("Remote path: "); !errors.Is(err, ErrNotTerminal) {
+	if _, err := u.Line("Remote path: "); !errors.Is(err, ErrNotTerminal) {
 		t.Errorf("Line() error = %v, want %v", err, ErrNotTerminal)
 	}
 }
@@ -156,9 +172,10 @@ func TestLineRefusesWithoutATerminal(t *testing.T) {
 // buffer, so the second question in a conversation would see nothing at all.
 // The real sequence this protects is offerToSave: confirm, then name.
 func TestPromptsShareOneReader(t *testing.T) {
-	withStreams(t, "y\nlogs\nsecond\n")
+	t.Parallel()
+	u, _ := newTestUI(t, "y\nlogs\nsecond\n")
 
-	save, err := Confirm("Save this as a favourite?", false)
+	save, err := u.Confirm("Save this as a favourite?", false)
 	if err != nil {
 		t.Fatalf("Confirm() error = %v", err)
 	}
@@ -166,7 +183,7 @@ func TestPromptsShareOneReader(t *testing.T) {
 		t.Fatal("Confirm() = false, want true")
 	}
 
-	name, err := Line("Favourite name: ")
+	name, err := u.Line("Favourite name: ")
 	if err != nil {
 		t.Fatalf("Line() error = %v", err)
 	}
@@ -174,7 +191,7 @@ func TestPromptsShareOneReader(t *testing.T) {
 		t.Errorf("Line() = %q, want %q; the second prompt read the wrong line", name, "logs")
 	}
 
-	third, err := Line("Another: ")
+	third, err := u.Line("Another: ")
 	if err != nil {
 		t.Fatalf("Line() error = %v", err)
 	}
@@ -184,38 +201,26 @@ func TestPromptsShareOneReader(t *testing.T) {
 }
 
 func TestMessagePrefixes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
-		write func(string, ...any)
+		write func(*UI, string, ...any)
 		want  string
 	}{
-		{name: "info", write: Infof, want: "[*] mounted web01 at ~/sshfs/web01\n"},
-		{name: "warning", write: Warnf, want: "[!] mounted web01 at ~/sshfs/web01\n"},
+		{name: "info", write: (*UI).Infof, want: "[*] mounted web01 at ~/sshfs/web01\n"},
+		{name: "warning", write: (*UI).Warnf, want: "[!] mounted web01 at ~/sshfs/web01\n"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			buf := withStreams(t, "")
+			t.Parallel()
+			u, buf := newTestUI(t, "")
 
-			tc.write("mounted %s at %s", "web01", "~/sshfs/web01")
+			tc.write(u, "mounted %s at %s", "web01", "~/sshfs/web01")
 
 			if got := buf.String(); got != tc.want {
 				t.Errorf("output = %q, want %q", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestResetForTestingRestoresTheRealStreams(t *testing.T) {
-	output = &bytes.Buffer{}
-	isTerminal = func() bool { return true }
-
-	ResetForTesting()
-
-	if output == nil {
-		t.Fatal("output = nil after ResetForTesting()")
-	}
-	if _, isBuffer := output.(*bytes.Buffer); isBuffer {
-		t.Error("output is still the test buffer after ResetForTesting()")
 	}
 }

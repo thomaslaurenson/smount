@@ -12,7 +12,7 @@ import (
 	"github.com/thomaslaurenson/smount/internal/ui"
 )
 
-func newUmountCmd() *cobra.Command {
+func (a *App) newUmountCmd() *cobra.Command {
 	var all, force bool
 
 	cmd := &cobra.Command{
@@ -23,7 +23,7 @@ func newUmountCmd() *cobra.Command {
 		Aliases:           []string{"unmount"},
 		ValidArgsFunction: completeMounts,
 		RunE: func(_ *cobra.Command, args []string) error {
-			return runUmount(args, all, force)
+			return a.runUmount(args, all, force)
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "unmount every active sshfs mount")
@@ -32,7 +32,7 @@ func newUmountCmd() *cobra.Command {
 	return cmd
 }
 
-func runUmount(args []string, all, force bool) error {
+func (a *App) runUmount(args []string, all, force bool) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -53,7 +53,7 @@ func runUmount(args []string, all, force bool) error {
 	}
 
 	if all {
-		return umountAll(cfg.MountBaseDir(), mounts, force)
+		return a.umountAll(cfg.MountBaseDir(), mounts, force)
 	}
 
 	var target *mount.Mount
@@ -65,22 +65,22 @@ func runUmount(args []string, all, force bool) error {
 			return fmt.Errorf("%s: %w", args[0], err)
 		}
 	} else {
-		target, err = pickMount(mounts)
+		target, err = a.pickMount(mounts)
 		if err != nil {
 			return err
 		}
 	}
 
-	return umountOne(cfg.MountBaseDir(), *target, force)
+	return a.umountOne(cfg.MountBaseDir(), *target, force)
 }
 
 // umountAll unmounts everything, reporting failures at the end rather than
 // stopping, so one wedged mount does not strand the rest.
-func umountAll(base string, mounts []mount.Mount, force bool) error {
+func (a *App) umountAll(base string, mounts []mount.Mount, force bool) error {
 	failed := 0
 	for _, m := range mounts {
-		if err := umountOne(base, m, force); err != nil {
-			ui.Warnf("%v", err)
+		if err := a.umountOne(base, m, force); err != nil {
+			a.ui.Warnf("%v", err)
 			failed++
 		}
 	}
@@ -90,20 +90,20 @@ func umountAll(base string, mounts []mount.Mount, force bool) error {
 	return nil
 }
 
-func umountOne(base string, m mount.Mount, force bool) error {
+func (a *App) umountOne(base string, m mount.Mount, force bool) error {
 	if m.State != mount.StateOK && !force {
-		ui.Warnf("%s is %s, unmounting lazily", m.Name, m.State)
+		a.ui.Warnf("%s is %s, unmounting lazily", m.Name, m.State)
 		force = true
 	}
 	if err := mount.Unmount(m.Target, base, force); err != nil {
 		return err
 	}
-	ui.Infof("unmounted %s from %s", m.Describe(), tilde.Collapse(m.Target))
+	a.ui.Infof("unmounted %s from %s", m.Describe(), tilde.Collapse(m.Target))
 	return nil
 }
 
 // pickMount prompts for one of the active mounts.
-func pickMount(mounts []mount.Mount) (*mount.Mount, error) {
+func (a *App) pickMount(mounts []mount.Mount) (*mount.Mount, error) {
 	items := make([]ui.Item, len(mounts))
 	for i, m := range mounts {
 		detail := m.Source
@@ -113,7 +113,7 @@ func pickMount(mounts []mount.Mount) (*mount.Mount, error) {
 		items[i] = ui.Item{Label: m.Name, Detail: detail}
 	}
 
-	idx, err := ui.Select("Select a mount to unmount", items)
+	idx, err := a.ui.Select("Select a mount to unmount", items)
 	if err != nil {
 		return nil, err
 	}

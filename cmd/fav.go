@@ -11,10 +11,9 @@ import (
 	"github.com/thomaslaurenson/smount/internal/mount"
 	"github.com/thomaslaurenson/smount/internal/target"
 	"github.com/thomaslaurenson/smount/internal/tilde"
-	"github.com/thomaslaurenson/smount/internal/ui"
 )
 
-func newFavCmd() *cobra.Command {
+func (a *App) newFavCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "fav",
 		Short:   "Manage saved mount targets",
@@ -24,7 +23,7 @@ func newFavCmd() *cobra.Command {
 			return listFavourites(cmd)
 		},
 	}
-	cmd.AddCommand(newFavListCmd(), newFavAddCmd(), newFavRemoveCmd(), newFavImportCmd())
+	cmd.AddCommand(newFavListCmd(), a.newFavAddCmd(), a.newFavRemoveCmd(), a.newFavImportCmd())
 	return cmd
 }
 
@@ -68,7 +67,7 @@ func listFavourites(cmd *cobra.Command) error {
 	return w.Flush()
 }
 
-func newFavAddCmd() *cobra.Command {
+func (a *App) newFavAddCmd() *cobra.Command {
 	var (
 		at       string
 		extra    []string
@@ -115,7 +114,7 @@ func newFavAddCmd() *cobra.Command {
 			if err := favourites.Save(store); err != nil {
 				return err
 			}
-			ui.Infof("saved favourite %q", name)
+			a.ui.Infof("saved favourite %q", name)
 			return nil
 		},
 	}
@@ -125,7 +124,7 @@ func newFavAddCmd() *cobra.Command {
 	return cmd
 }
 
-func newFavRemoveCmd() *cobra.Command {
+func (a *App) newFavRemoveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:               "rm <name>",
 		Short:             "Delete a favourite",
@@ -143,13 +142,13 @@ func newFavRemoveCmd() *cobra.Command {
 			if err := favourites.Save(store); err != nil {
 				return err
 			}
-			ui.Infof("deleted favourite %q", args[0])
+			a.ui.Infof("deleted favourite %q", args[0])
 			return nil
 		},
 	}
 }
 
-func newFavImportCmd() *cobra.Command {
+func (a *App) newFavImportCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "import",
 		Short: "Import favourites from the war10ck sshfs shell function",
@@ -175,13 +174,13 @@ func newFavImportCmd() *cobra.Command {
 				return err
 			}
 			if added == 0 {
-				ui.Infof("nothing to import from %s", tilde.Collapse(legacy))
+				a.ui.Infof("nothing to import from %s", tilde.Collapse(legacy))
 				return nil
 			}
 			if err := favourites.Save(store); err != nil {
 				return err
 			}
-			ui.Infof("imported %d favourite(s) from %s", added, tilde.Collapse(legacy))
+			a.ui.Infof("imported %d favourite(s) from %s", added, tilde.Collapse(legacy))
 			return nil
 		},
 	}
