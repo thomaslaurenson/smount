@@ -23,7 +23,7 @@ build: ## Build the binary for the current platform
 
 .PHONY: snapshot
 snapshot: ## Build binaries for every platform with goreleaser
-	goreleaser release --snapshot --clean
+	goreleaser build --snapshot --clean
 
 # LINT
 .PHONY: format
