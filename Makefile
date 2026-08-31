@@ -44,11 +44,17 @@ check_mod: ## Fail if go.mod or go.sum is untidy
 	git diff --exit-code go.mod go.sum
 
 .PHONY: vet
-vet: ## Run go vet
+vet: ## Run go vet, including the build-tagged integration tests
 	go vet ./...
+	go vet -tags=integration ./...
+
+.PHONY: check_cross
+check_cross: ## Type-check the platform-specific files CI never builds
+	GOOS=windows go vet ./...
+	GOOS=darwin go vet ./...
 
 .PHONY: check_all
-check_all: check_format check_mod vet ## Run every static check
+check_all: check_format check_mod vet check_cross ## Run every static check
 
 .PHONY: vuln
 vuln: ## Scan dependencies and the standard library for known vulnerabilities
@@ -59,6 +65,10 @@ vuln: ## Scan dependencies and the standard library for known vulnerabilities
 test: ## Run all tests with the race detector
 	go test -race -count=1 ./...
 
+.PHONY: test_integration
+test_integration: ## Run the integration tests, which need a real remote host
+	go test -race -count=1 -tags=integration ./...
+
 .PHONY: test_coverage
 test_coverage: ## Report test coverage over the internal packages
 	go test -race -count=1 -coverpkg=./internal/... -coverprofile=coverage.out ./...
@@ -66,6 +76,10 @@ test_coverage: ## Report test coverage over the internal packages
 	rm coverage.out
 
 # GET
+.PHONY: get_version
+get_version: ## Print the version build would stamp into the binary
+	@echo "$(VERSION)"
+
 .PHONY: get_changelog
 get_changelog: ## Print release notes for TAG (default: latest tag; override with TAG=v1.0.0)
 	@tag="$(TAG)"; tag="$${tag#v}"; \
@@ -89,7 +103,7 @@ get_changelog: ## Print release notes for TAG (default: latest tag; override wit
 
 # CI
 .PHONY: ci
-ci: check_format check_mod vet test ## Run every check the lint and test workflows run
+ci: check_all test ## Run every check the lint and test workflows run
 
 .PHONY: clean
 clean: ## Remove build artefacts
