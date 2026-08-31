@@ -114,7 +114,7 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 		}
 	}
 
-	if err := mount.Run(spec); err != nil {
+	if err := mount.Run(spec, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 		return err
 	}
 	a.ui.Infof("mounted %s at %s", spec.Describe(), tilde.Collapse(spec.Target))

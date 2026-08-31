@@ -2,6 +2,7 @@ package mount
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -522,7 +523,8 @@ func TestSpecValidate(t *testing.T) {
 // Run has to refuse it itself rather than trusting the caller.
 func TestRunRejectsFlagLikeHostBeforeExec(t *testing.T) {
 	t.Parallel()
-	err := Run(Spec{Host: "-oProxyCommand=id", Target: filepath.Join(t.TempDir(), "x")})
+	spec := Spec{Host: "-oProxyCommand=id", Target: filepath.Join(t.TempDir(), "x")}
+	err := Run(spec, nil, io.Discard, io.Discard)
 	if !errors.Is(err, ErrFlagLikeArgument) {
 		t.Errorf("Run() error = %v, want %v", err, ErrFlagLikeArgument)
 	}

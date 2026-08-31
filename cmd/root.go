@@ -81,6 +81,7 @@ func NewRootCmd(in *os.File, out, errw io.Writer) *cobra.Command {
 			return a.runMount(cmd, opts, args)
 		},
 	}
+	root.SetIn(in)
 	root.SetOut(out)
 	root.SetErr(errw)
 	opts.register(root)

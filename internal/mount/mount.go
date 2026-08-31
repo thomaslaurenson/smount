@@ -4,6 +4,7 @@ package mount
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -136,10 +137,14 @@ func SSHFSPath() (string, error) {
 
 // Run creates the mount point and mounts the spec with sshfs.
 //
-// sshfs inherits the standard streams because it may need to prompt for a key
+// sshfs is given the caller's streams because it may need to prompt for a key
 // passphrase or a password, and its own diagnostics on failure are better than
 // anything that could be reconstructed from an exit status.
-func Run(s Spec) error {
+//
+// Pass the process's own files here rather than a wrapper around them. os/exec
+// hands a *os.File to the child as a descriptor and gives anything else a pipe,
+// and ssh behaves differently when its input is not a terminal.
+func Run(s Spec, in io.Reader, out, errw io.Writer) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -153,9 +158,9 @@ func Run(s Spec) error {
 	}
 
 	cmd := exec.Command(bin, s.Args()...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdin = in
+	cmd.Stdout = out
+	cmd.Stderr = errw
 	if err := cmd.Run(); err != nil {
 		// Only a directory this call made is safe to remove. PrepareTarget
 		// accepts an empty directory that was already there, and that one
