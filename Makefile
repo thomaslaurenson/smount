@@ -26,6 +26,22 @@ build: ## Build the binary for the current platform
 snapshot: ## Build binaries for every platform with goreleaser
 	goreleaser build --snapshot --clean
 
+##@ TEST
+
+.PHONY: test
+test: ## Run all tests with the race detector
+	go test -race -count=1 ./...
+
+.PHONY: test_integration
+test_integration: ## Run the integration tests, which need a real remote host
+	go test -race -count=1 -tags=integration ./...
+
+.PHONY: test_coverage
+test_coverage: ## Report test coverage over the internal packages
+	go test -race -count=1 -tags=integration -coverpkg=./internal/... -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+	rm coverage.out
+
 ##@ LINT
 
 .PHONY: format
@@ -61,22 +77,6 @@ check_all: check_format check_mod vet check_cross ## Run every static check
 .PHONY: vuln
 vuln: ## Scan dependencies and the standard library for known vulnerabilities
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-
-##@ TEST
-
-.PHONY: test
-test: ## Run all tests with the race detector
-	go test -race -count=1 ./...
-
-.PHONY: test_integration
-test_integration: ## Run the integration tests, which need a real remote host
-	go test -race -count=1 -tags=integration ./...
-
-.PHONY: test_coverage
-test_coverage: ## Report test coverage over the internal packages
-	go test -race -count=1 -tags=integration -coverpkg=./internal/... -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out
-	rm coverage.out
 
 ##@ GET
 
