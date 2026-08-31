@@ -14,13 +14,13 @@ import (
 	"github.com/thomaslaurenson/smount/internal/tilde"
 )
 
-func newCheckCmd() *cobra.Command {
+func (a *App) newCheckCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "check",
 		Short: "Check that everything smount needs is present and working",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCheck(cmd.OutOrStdout())
+			return runCheck(cmd.OutOrStdout(), a.home)
 		},
 	}
 }
@@ -35,28 +35,27 @@ type result struct {
 // runCheck reports on the environment and fails only when something would stop
 // a mount from working. A missing favourites file or an empty mount base are
 // normal on a new install, so they are reported without failing.
-func runCheck(out io.Writer) error {
+func runCheck(out io.Writer, home tilde.Home) error {
 	var checks []result
 
 	checks = append(checks, binaryCheck("sshfs", "required to mount anything"))
 	checks = append(checks, binaryCheck("ssh", "required to resolve host settings"))
 	checks = append(checks, unmountToolCheck())
 
-	cfg, err := config.Load()
+	cfg, err := config.Load(home)
 	if err != nil {
 		checks = append(checks, result{name: "config", detail: err.Error(), failed: true})
-		cfg = config.Defaults()
+		cfg = config.Defaults(home)
 	} else {
 		source := "defaults, no file written yet"
-		if config.Exists() {
-			path, _ := config.Path()
-			source = tilde.Collapse(path)
+		if config.Exists(home) {
+			source = home.Collapse(config.Path(home))
 		}
 		checks = append(checks, result{name: "config", detail: source})
 	}
 
-	checks = append(checks, sshConfigCheck(cfg))
-	checks = append(checks, mountBaseCheck(cfg))
+	checks = append(checks, sshConfigCheck(home, cfg))
+	checks = append(checks, mountBaseCheck(home, cfg))
 	checks = append(checks, mountsCheck()...)
 
 	failed := 0
@@ -92,30 +91,30 @@ func unmountToolCheck() result {
 	return result{name: "unmount", detail: bin}
 }
 
-func sshConfigCheck(cfg *config.Config) result {
+func sshConfigCheck(home tilde.Home, cfg *config.Config) result {
 	path := cfg.SSHConfigPath()
-	aliases, err := sshconf.Aliases(path)
+	aliases, err := sshconf.Aliases(string(home), path)
 	if err != nil {
 		return result{name: "ssh config", detail: err.Error(), failed: true}
 	}
 	return result{
 		name:   "ssh config",
-		detail: fmt.Sprintf("%s, %d host(s)", tilde.Collapse(path), len(aliases)),
+		detail: fmt.Sprintf("%s, %d host(s)", home.Collapse(path), len(aliases)),
 	}
 }
 
-func mountBaseCheck(cfg *config.Config) result {
+func mountBaseCheck(home tilde.Home, cfg *config.Config) result {
 	base := cfg.MountBaseDir()
 	info, err := os.Stat(base)
 	switch {
 	case os.IsNotExist(err):
-		return result{name: "mount base", detail: tilde.Collapse(base) + ", created on first mount"}
+		return result{name: "mount base", detail: home.Collapse(base) + ", created on first mount"}
 	case err != nil:
 		return result{name: "mount base", detail: err.Error(), failed: true}
 	case !info.IsDir():
-		return result{name: "mount base", detail: tilde.Collapse(base) + " is not a directory", failed: true}
+		return result{name: "mount base", detail: home.Collapse(base) + " is not a directory", failed: true}
 	}
-	return result{name: "mount base", detail: tilde.Collapse(base)}
+	return result{name: "mount base", detail: home.Collapse(base)}
 }
 
 // mountsCheck reports the active mounts, and flags stale ones because they need

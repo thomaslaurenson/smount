@@ -60,11 +60,11 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 		a.ui.Warnf("%v, so this command cannot be run here", err)
 	}
 
-	cfg, err := config.Load()
+	cfg, err := config.Load(a.home)
 	if err != nil {
 		return err
 	}
-	store, err := favourites.Load()
+	store, err := favourites.Load(a.home)
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 	if err != nil {
 		host = nil
 	}
-	summarise(cmd.ErrOrStderr(), spec, host)
+	summarise(cmd.ErrOrStderr(), a.home, spec, host)
 
 	if o.dryRun {
 		fmt.Fprintln(cmd.OutOrStdout(), spec.CommandLine())
@@ -118,7 +118,7 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 	if err := mount.Run(spec, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 		return err
 	}
-	a.ui.Infof("mounted %s at %s", spec.Describe(), tilde.Collapse(spec.Target))
+	a.ui.Infof("mounted %s at %s", spec.Describe(), a.home.Collapse(spec.Target))
 
 	if !fromSaved && !o.noSave && a.ui.Interactive() {
 		return a.offerToSave(cmd, cfg, store, spec, o)
@@ -135,7 +135,7 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 // summary prints a confident "Resolves to" line for a name nothing knows, and a
 // typo looks exactly like a configured host.
 func (a *App) warnUnknownHost(cfg *config.Config, host string) {
-	known, err := sshconf.HasAlias(cfg.SSHConfigPath(), host)
+	known, err := sshconf.HasAlias(string(a.home), cfg.SSHConfigPath(), host)
 	if err != nil || known {
 		return
 	}
@@ -177,7 +177,7 @@ func (a *App) specInteractive(ctx context.Context, cfg *config.Config, store *fa
 
 // pickHost prompts for one of the aliases in the ssh config.
 func (a *App) pickHost(ctx context.Context, cfg *config.Config) (string, error) {
-	aliases, err := sshconf.Aliases(cfg.SSHConfigPath())
+	aliases, err := sshconf.Aliases(string(a.home), cfg.SSHConfigPath())
 	if err != nil {
 		return "", err
 	}
@@ -232,14 +232,14 @@ func (a *App) pickPath(ctx context.Context) (string, error) {
 
 // summarise prints what is about to be mounted, including where ssh says the
 // host actually resolves to.
-func summarise(out io.Writer, spec mount.Spec, host *sshconf.Host) {
+func summarise(out io.Writer, home tilde.Home, spec mount.Spec, host *sshconf.Host) {
 	fmt.Fprintln(out, "[*] Mount summary:")
 	fmt.Fprintf(out, "      Host:        %s\n", spec.Host)
 	if host != nil {
 		fmt.Fprintf(out, "      Resolves to: %s\n", host.Addr())
 	}
 	fmt.Fprintf(out, "      Remote path: %s\n", displayPath(spec.Path))
-	fmt.Fprintf(out, "      Mount point: %s\n", tilde.Collapse(spec.Target))
+	fmt.Fprintf(out, "      Mount point: %s\n", home.Collapse(spec.Target))
 	fmt.Fprintf(out, "      Options:     %s\n", spec.OptionString())
 }
 
@@ -281,7 +281,7 @@ func (a *App) offerToSave(cmd *cobra.Command, cfg *config.Config, store *favouri
 		a.ui.Warnf("not saved: %v", err)
 		return nil
 	}
-	if err := favourites.Save(store); err != nil {
+	if err := favourites.Save(a.home, store); err != nil {
 		a.ui.Warnf("not saved: %v", err)
 		return nil
 	}

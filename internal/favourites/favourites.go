@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/thomaslaurenson/smount/internal/config"
+	"github.com/thomaslaurenson/smount/internal/tilde"
 )
 
 // Version is the schema version written to the favourites file.
@@ -65,20 +66,13 @@ var (
 )
 
 // Path returns the path to the favourites file.
-func Path() (string, error) {
-	dir, err := config.DirPath()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, filename), nil
+func Path(home tilde.Home) string {
+	return filepath.Join(config.DirPath(home), filename)
 }
 
 // Load reads the favourites file, returning an empty store when none exists.
-func Load() (*Store, error) {
-	path, err := Path()
-	if err != nil {
-		return nil, err
-	}
+func Load(home tilde.Home) (*Store, error) {
+	path := Path(home)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -98,14 +92,11 @@ func Load() (*Store, error) {
 }
 
 // Save writes the favourites file, creating the directory if needed.
-func Save(s *Store) error {
-	if _, err := config.Dir(); err != nil {
+func Save(home tilde.Home, s *Store) error {
+	if _, err := config.Dir(home); err != nil {
 		return err
 	}
-	path, err := Path()
-	if err != nil {
-		return err
-	}
+	path := Path(home)
 	s.Version = Version
 	slices.SortFunc(s.Favourites, func(a, b Favourite) int {
 		return cmp.Compare(a.Name, b.Name)
@@ -256,12 +247,8 @@ func (s *Store) uniqueName(base string, claimed func(string) bool) string {
 }
 
 // LegacyPath returns the war10ck shell function's favourites file.
-func LegacyPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".war10ck", ".sshfs_favorites"), nil
+func LegacyPath(home tilde.Home) string {
+	return filepath.Join(string(home), ".war10ck", ".sshfs_favorites")
 }
 
 // MigrateLegacy imports the war10ck shell function's favourites into s.

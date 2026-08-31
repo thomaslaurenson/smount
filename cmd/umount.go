@@ -9,7 +9,6 @@ import (
 
 	"github.com/thomaslaurenson/smount/internal/config"
 	"github.com/thomaslaurenson/smount/internal/mount"
-	"github.com/thomaslaurenson/smount/internal/tilde"
 	"github.com/thomaslaurenson/smount/internal/ui"
 )
 
@@ -34,7 +33,7 @@ func (a *App) newUmountCmd() *cobra.Command {
 }
 
 func (a *App) runUmount(ctx context.Context, args []string, all, force bool) error {
-	cfg, err := config.Load()
+	cfg, err := config.Load(a.home)
 	if err != nil {
 		return err
 	}
@@ -99,7 +98,7 @@ func (a *App) umountOne(base string, m mount.Mount, force bool) error {
 	if err := mount.Unmount(m.Target, base, force); err != nil {
 		return err
 	}
-	a.ui.Infof("unmounted %s from %s", m.Describe(), tilde.Collapse(m.Target))
+	a.ui.Infof("unmounted %s from %s", m.Describe(), a.home.Collapse(m.Target))
 	return nil
 }
 

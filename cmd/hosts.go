@@ -10,7 +10,7 @@ import (
 	"github.com/thomaslaurenson/smount/internal/sshconf"
 )
 
-func newHostsCmd() *cobra.Command {
+func (a *App) newHostsCmd() *cobra.Command {
 	var quiet bool
 
 	cmd := &cobra.Command{
@@ -21,11 +21,11 @@ func newHostsCmd() *cobra.Command {
 			"connections rather than name somewhere to connect to.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
+			cfg, err := config.Load(a.home)
 			if err != nil {
 				return err
 			}
-			aliases, err := sshconf.Aliases(cfg.SSHConfigPath())
+			aliases, err := sshconf.Aliases(string(a.home), cfg.SSHConfigPath())
 			if err != nil {
 				return err
 			}

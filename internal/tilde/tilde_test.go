@@ -5,12 +5,9 @@ import (
 	"testing"
 )
 
-// The tilde package reads HOME, which is process wide state, so these tests do
-// not call t.Parallel().
-
 func TestExpand(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 
 	tests := []struct {
 		name  string
@@ -29,16 +26,17 @@ func TestExpand(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Expand(tc.input); got != tc.want {
-				t.Errorf("Expand(%q) = %q, want %q", tc.input, got, tc.want)
+			t.Parallel()
+			if got := Home(home).Expand(tc.input); got != tc.want {
+				t.Errorf("Home.Expand(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}
 }
 
 func TestCollapse(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 
 	tests := []struct {
 		name  string
@@ -54,20 +52,21 @@ func TestCollapse(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Collapse(tc.input); got != tc.want {
-				t.Errorf("Collapse(%q) = %q, want %q", tc.input, got, tc.want)
+			t.Parallel()
+			if got := Home(home).Collapse(tc.input); got != tc.want {
+				t.Errorf("Home.Collapse(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}
 }
 
 func TestExpandCollapseRoundTrip(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Parallel()
+	home := Home(t.TempDir())
 
 	for _, path := range []string{"~", "~/sshfs", "~/a/b"} {
-		if got := Collapse(Expand(path)); got != path {
-			t.Errorf("Collapse(Expand(%q)) = %q, want %q", path, got, path)
+		if got := home.Collapse(home.Expand(path)); got != path {
+			t.Errorf("Home.Collapse(Home.Expand(%q)) = %q, want %q", path, got, path)
 		}
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/thomaslaurenson/smount/internal/config"
 	"github.com/thomaslaurenson/smount/internal/favourites"
 	"github.com/thomaslaurenson/smount/internal/mount"
-	"github.com/thomaslaurenson/smount/internal/tilde"
 )
 
 // Options are the command line choices that add to, or override, what the
@@ -48,7 +47,7 @@ func Resolve(cfg *config.Config, store *favourites.Store, arg string, o Options)
 // than replacing it, so --ro can promote a read write favourite for one mount
 // but nothing can quietly demote a favourite saved as read only.
 func FromFavourite(cfg *config.Config, fav *favourites.Favourite, o Options) mount.Spec {
-	mountpoint := tilde.Expand(fav.Mountpoint)
+	mountpoint := cfg.Home.Expand(fav.Mountpoint)
 	if mountpoint == "" {
 		mountpoint = filepath.Join(cfg.MountBaseDir(), fav.Name)
 	}
@@ -72,7 +71,7 @@ func ForHost(cfg *config.Config, host, path string, o Options) mount.Spec {
 func build(cfg *config.Config, host, path, mountpoint string, favOpts []string, o Options) mount.Spec {
 	switch {
 	case o.At != "":
-		mountpoint = tilde.Expand(o.At)
+		mountpoint = cfg.Home.Expand(o.At)
 	case mountpoint == "":
 		mountpoint = mount.TargetFor(cfg.MountBaseDir(), host, path)
 	}
@@ -108,7 +107,7 @@ func FavouriteFor(cfg *config.Config, spec mount.Spec, name string, o Options) f
 		ReadOnly: spec.ReadOnly,
 	}
 	if derived := filepath.Join(cfg.MountBaseDir(), name); derived != spec.Target {
-		fav.Mountpoint = tilde.Collapse(spec.Target)
+		fav.Mountpoint = cfg.Home.Collapse(spec.Target)
 	}
 	return fav
 }

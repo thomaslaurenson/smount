@@ -66,7 +66,7 @@ var ErrInvalidAlias = errors.New("host alias must not begin with '-'")
 // Wildcard and negated patterns are omitted. "Host *" sets defaults for every
 // connection rather than naming somewhere to connect to, so offering it as a
 // mount target would be offering something that cannot be mounted.
-func Aliases(path string) ([]string, error) {
+func Aliases(home, path string) ([]string, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("reading ssh config: %w", err)
 	}
@@ -78,7 +78,7 @@ func Aliases(path string) ([]string, error) {
 
 	names := make(map[string]struct{})
 	visited := make(map[string]struct{})
-	if err := collect(abs, filepath.Dir(abs), names, visited, 0); err != nil {
+	if err := collect(abs, filepath.Dir(abs), home, names, visited, 0); err != nil {
 		return nil, err
 	}
 
@@ -96,8 +96,8 @@ func Aliases(path string) ([]string, error) {
 // This is what tells a typo from a host that is simply configured elsewhere.
 // "ssh -G" echoes an unknown name straight back as its own hostname, so it can
 // never answer the question.
-func HasAlias(path, target string) (bool, error) {
-	aliases, err := Aliases(path)
+func HasAlias(home, path, target string) (bool, error) {
+	aliases, err := Aliases(home, path)
 	if err != nil {
 		return false, err
 	}
@@ -121,7 +121,7 @@ func aliasName(target string) string {
 // A missing or unreadable file is not an error below the top level. ssh treats
 // an Include that matches nothing as a no-op, and a config that names an
 // optional work-only fragment is a normal thing to carry between machines.
-func collect(path, root string, names, visited map[string]struct{}, depth int) error {
+func collect(path, root, home string, names, visited map[string]struct{}, depth int) error {
 	if depth > maxIncludeDepth {
 		return fmt.Errorf("ssh config includes nested more than %d deep at %s", maxIncludeDepth, path)
 	}
@@ -159,8 +159,8 @@ func collect(path, root string, names, visited map[string]struct{}, depth int) e
 			}
 		case "include":
 			for _, pattern := range tokens[1:] {
-				for _, inc := range includePaths(pattern, root) {
-					if err := collect(inc, root, names, visited, depth+1); err != nil {
+				for _, inc := range includePaths(pattern, root, home) {
+					if err := collect(inc, root, home, names, visited, depth+1); err != nil {
 						return err
 					}
 				}
@@ -188,8 +188,8 @@ func collect(path, root string, names, visited map[string]struct{}, depth int) e
 // one case it still differs from ssh is ssh_config pointing at a fragment, say
 // ~/.ssh/config.d/work, where ssh would resolve a relative Include inside it
 // against ~/.ssh and this resolves against ~/.ssh/config.d.
-func includePaths(pattern, root string) []string {
-	expanded := expandUser(pattern)
+func includePaths(pattern, root, home string) []string {
+	expanded := expandUser(pattern, home)
 	if !filepath.IsAbs(expanded) {
 		expanded = filepath.Join(root, expanded)
 	}
@@ -268,14 +268,10 @@ func tokenise(line string) []string {
 	return tokens
 }
 
-// expandUser resolves a leading ~ without importing the tilde package, so that
-// config parsing stays free of smount's own path conventions.
-func expandUser(path string) string {
-	if path != "~" && !strings.HasPrefix(path, "~/") {
-		return path
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+// expandUser resolves a leading ~ against home, taking it as a plain string so
+// that config parsing stays free of smount's own path conventions.
+func expandUser(path, home string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") || home == "" {
 		return path
 	}
 	if path == "~" {

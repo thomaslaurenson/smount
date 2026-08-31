@@ -165,7 +165,7 @@ func TestAliases(t *testing.T) {
 			t.Parallel()
 			dir := writeTree(t, tc.files)
 
-			got, err := Aliases(filepath.Join(dir, "config"))
+			got, err := Aliases(dir, filepath.Join(dir, "config"))
 			if err != nil {
 				t.Fatalf("Aliases() error = %v", err)
 			}
@@ -178,7 +178,7 @@ func TestAliases(t *testing.T) {
 
 func TestAliasesMissingConfig(t *testing.T) {
 	t.Parallel()
-	if _, err := Aliases(filepath.Join(t.TempDir(), "nope")); err == nil {
+	if _, err := Aliases("", filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Fatal("Aliases() on a missing config = nil error, want an error")
 	}
 }
@@ -268,7 +268,7 @@ func TestHasAlias(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := HasAlias(path, tc.target)
+			got, err := HasAlias(dir, path, tc.target)
 			if err != nil {
 				t.Fatalf("HasAlias(%q) error = %v", tc.target, err)
 			}
@@ -281,7 +281,7 @@ func TestHasAlias(t *testing.T) {
 
 func TestHasAliasReportsAMissingConfig(t *testing.T) {
 	t.Parallel()
-	if _, err := HasAlias(filepath.Join(t.TempDir(), "absent"), "web01"); err == nil {
+	if _, err := HasAlias("", filepath.Join(t.TempDir(), "absent"), "web01"); err == nil {
 		t.Error("HasAlias() on a missing config = nil error, want an error")
 	}
 }

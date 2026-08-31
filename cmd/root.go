@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/thomaslaurenson/smount/internal/tilde"
 	"github.com/thomaslaurenson/smount/internal/ui"
 )
 
@@ -51,11 +52,16 @@ var ErrCancelled = ui.ErrCancelled
 
 // App holds the dependencies every subcommand shares.
 type App struct {
-	ui *ui.UI
+	ui   *ui.UI
+	home tilde.Home
 }
 
 // NewRootCmd builds the command tree, reading answers from in and writing
 // output to out and errw.
+//
+// home is the directory every ~ path resolves against. It is read from the
+// environment by the entry point and passed in, so nothing under internal has
+// to look it up for itself.
 //
 // The streams are parameters rather than the process ones so that a test can
 // build the same tree this binary does and read back what it wrote.
@@ -64,8 +70,11 @@ type App struct {
 // os.Stderr is asked directly because the question is about the process: a
 // prompt is drawn on the real error stream or not at all, whatever errw is
 // wrapped in.
-func NewRootCmd(in *os.File, out, errw io.Writer) *cobra.Command {
-	a := &App{ui: ui.New(in, errw, ui.IsTerminal(in, os.Stderr))}
+func NewRootCmd(home string, in *os.File, out, errw io.Writer) *cobra.Command {
+	a := &App{
+		ui:   ui.New(in, errw, ui.IsTerminal(in, os.Stderr)),
+		home: tilde.Home(home),
+	}
 	opts := &mountOptions{}
 
 	root := &cobra.Command{
@@ -76,7 +85,7 @@ func NewRootCmd(in *os.File, out, errw io.Writer) *cobra.Command {
 		SilenceErrors:     true,
 		SilenceUsage:      true,
 		Version:           Version,
-		ValidArgsFunction: completeTargets,
+		ValidArgsFunction: a.completeTargets,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runMount(cmd, opts, args)
 		},
@@ -87,11 +96,11 @@ func NewRootCmd(in *os.File, out, errw io.Writer) *cobra.Command {
 	opts.register(root)
 
 	root.AddCommand(
-		newLsCmd(),
+		newLsCmd(a.home),
 		a.newUmountCmd(),
-		newHostsCmd(),
+		a.newHostsCmd(),
 		a.newFavCmd(),
-		newCheckCmd(),
+		a.newCheckCmd(),
 		newVersionCmd(),
 	)
 	return root

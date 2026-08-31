@@ -19,7 +19,15 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	root := cmd.NewRootCmd(os.Stdin, os.Stdout, os.Stderr)
+	// Read here, at the boundary that owns the process, so that nothing below
+	// has to ask the environment for itself.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "smount: %v\n", err)
+		os.Exit(1)
+	}
+
+	root := cmd.NewRootCmd(home, os.Stdin, os.Stdout, os.Stderr)
 	if err := root.ExecuteContext(ctx); err != nil {
 		// Asked of the context rather than the error, because a cancelled
 		// operation reports its own symptom instead of the cancellation: a

@@ -10,7 +10,7 @@ import (
 	"github.com/thomaslaurenson/smount/internal/tilde"
 )
 
-func newLsCmd() *cobra.Command {
+func newLsCmd(home tilde.Home) *cobra.Command {
 	return &cobra.Command{
 		Use:     "ls",
 		Short:   "List active sshfs mounts",
@@ -29,7 +29,7 @@ func newLsCmd() *cobra.Command {
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "NAME\tMOUNT POINT\tSOURCE\tSTATUS")
 			for _, m := range mounts {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Name, tilde.Collapse(m.Target), m.Source, m.State)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Name, home.Collapse(m.Target), m.Source, m.State)
 			}
 			return w.Flush()
 		},

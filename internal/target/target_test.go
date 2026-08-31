@@ -7,18 +7,17 @@ import (
 
 	"github.com/thomaslaurenson/smount/internal/config"
 	"github.com/thomaslaurenson/smount/internal/favourites"
+	"github.com/thomaslaurenson/smount/internal/tilde"
 )
-
-// These tests set HOME, which is process wide state, so they do not call
-// t.Parallel().
 
 // testConfig returns a config with a known mount base and a short, recognisable
 // option baseline, so a layering test can tell each layer apart by name.
-func testConfig(base string) *config.Config {
+func testConfig(home tilde.Home, base string) *config.Config {
 	return &config.Config{
 		MountBase: base,
 		Options:   []string{"reconnect", "idmap=user"},
 		SSHConfig: config.DefaultSSHConfig,
+		Home:      home,
 	}
 }
 
@@ -27,6 +26,7 @@ func testConfig(base string) *config.Config {
 // flags come last. sshfs takes the last value for a repeated option, so a later
 // layer wins by appearing after an earlier one rather than by replacing it.
 func TestBuildLayersOptions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		favOpts []string
@@ -61,7 +61,7 @@ func TestBuildLayersOptions(t *testing.T) {
 		},
 	}
 
-	cfg := testConfig("/mnt")
+	cfg := testConfig("", "/mnt")
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := build(cfg, "web01", "/var/log", "/mnt/x", tc.favOpts, Options{Extra: tc.extra})
@@ -76,7 +76,8 @@ func TestBuildLayersOptions(t *testing.T) {
 // that reuses one config across several mounts. Appending onto the config's own
 // slice would let the first mount's -o flags leak into the second.
 func TestBuildDoesNotAliasTheConfigOptions(t *testing.T) {
-	cfg := testConfig("/mnt")
+	t.Parallel()
+	cfg := testConfig("", "/mnt")
 	baseline := append([]string(nil), cfg.Options...)
 
 	build(cfg, "web01", "", "/mnt/a", []string{"compression=yes"}, Options{Extra: []string{"debug"}})
@@ -87,6 +88,7 @@ func TestBuildDoesNotAliasTheConfigOptions(t *testing.T) {
 }
 
 func TestBuildMountPoint(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		host       string
@@ -122,7 +124,7 @@ func TestBuildMountPoint(t *testing.T) {
 		},
 	}
 
-	cfg := testConfig("/mnt")
+	cfg := testConfig("", "/mnt")
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := build(cfg, tc.host, tc.path, tc.mountpoint, nil, Options{At: tc.at})
@@ -134,7 +136,8 @@ func TestBuildMountPoint(t *testing.T) {
 }
 
 func TestForHostDerivesTheMountPoint(t *testing.T) {
-	cfg := testConfig("/mnt")
+	t.Parallel()
+	cfg := testConfig("", "/mnt")
 
 	got := ForHost(cfg, "web01", "/var/log", Options{})
 
@@ -147,9 +150,9 @@ func TestForHostDerivesTheMountPoint(t *testing.T) {
 }
 
 func TestFromFavourite(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	cfg := testConfig("~/sshfs")
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
+	cfg := testConfig(home, "~/sshfs")
 
 	tests := []struct {
 		name string
@@ -160,18 +163,18 @@ func TestFromFavourite(t *testing.T) {
 		{
 			name: "mount point is named after the favourite, not the host",
 			fav:  favourites.Favourite{Name: "logs", Host: "web01", Path: "/var/log"},
-			want: filepath.Join(home, "sshfs", "logs"),
+			want: filepath.Join(string(home), "sshfs", "logs"),
 		},
 		{
 			name: "a pinned mount point wins over the derived one",
 			fav:  favourites.Favourite{Name: "logs", Host: "web01", Mountpoint: "~/elsewhere"},
-			want: filepath.Join(home, "elsewhere"),
+			want: filepath.Join(string(home), "elsewhere"),
 		},
 		{
 			name: "--at wins over a pinned mount point",
 			fav:  favourites.Favourite{Name: "logs", Host: "web01", Mountpoint: "~/elsewhere"},
 			opts: Options{At: "~/override"},
-			want: filepath.Join(home, "override"),
+			want: filepath.Join(string(home), "override"),
 		},
 	}
 
@@ -188,8 +191,9 @@ func TestFromFavourite(t *testing.T) {
 // appended. --ro can promote a read write favourite for a single mount, but a
 // favourite saved read only stays read only whatever the command line says.
 func TestFromFavouriteReadOnlyIsAdditive(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	cfg := testConfig("~/sshfs")
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
+	cfg := testConfig(home, "~/sshfs")
 
 	tests := []struct {
 		name   string
@@ -215,8 +219,8 @@ func TestFromFavouriteReadOnlyIsAdditive(t *testing.T) {
 }
 
 func TestResolve(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	cfg := testConfig("/mnt")
+	t.Parallel()
+	cfg := testConfig("", "/mnt")
 	store := &favourites.Store{Favourites: []favourites.Favourite{
 		{Name: "logs", Host: "web01", Path: "/var/log"},
 		// Named after a host so that the lookup order is observable.
@@ -267,9 +271,9 @@ func TestResolve(t *testing.T) {
 }
 
 func TestFavouriteFor(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	cfg := testConfig("~/sshfs")
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
+	cfg := testConfig(home, "~/sshfs")
 
 	t.Run("keeps only the command line option layer", func(t *testing.T) {
 		spec := ForHost(cfg, "web01", "/var/log", Options{Extra: []string{"debug"}})
@@ -285,7 +289,7 @@ func TestFavouriteFor(t *testing.T) {
 	})
 
 	t.Run("does not pin a mount point it would derive anyway", func(t *testing.T) {
-		spec := ForHost(cfg, "web01", "", Options{At: filepath.Join(home, "sshfs", "logs")})
+		spec := ForHost(cfg, "web01", "", Options{At: filepath.Join(string(home), "sshfs", "logs")})
 
 		got := FavouriteFor(cfg, spec, "logs", Options{})
 
@@ -295,7 +299,7 @@ func TestFavouriteFor(t *testing.T) {
 	})
 
 	t.Run("pins a mount point that differs from the derived one", func(t *testing.T) {
-		spec := ForHost(cfg, "web01", "", Options{At: filepath.Join(home, "elsewhere")})
+		spec := ForHost(cfg, "web01", "", Options{At: filepath.Join(string(home), "elsewhere")})
 
 		got := FavouriteFor(cfg, spec, "logs", Options{})
 
@@ -321,16 +325,16 @@ func TestFavouriteFor(t *testing.T) {
 // a spec has to mount back to the same place, or "save this as a favourite"
 // quietly changes where the mount lands next time.
 func TestFavouriteForRoundTrip(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	cfg := testConfig("~/sshfs")
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
+	cfg := testConfig(home, "~/sshfs")
 
 	tests := []struct {
 		name string
 		opts Options
 	}{
 		{name: "derived mount point", opts: Options{}},
-		{name: "pinned mount point", opts: Options{At: filepath.Join(home, "elsewhere")}},
+		{name: "pinned mount point", opts: Options{At: filepath.Join(string(home), "elsewhere")}},
 		{name: "with command line options", opts: Options{Extra: []string{"debug"}}},
 		{name: "read only", opts: Options{ReadOnly: true}},
 	}
