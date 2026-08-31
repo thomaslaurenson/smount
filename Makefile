@@ -22,20 +22,20 @@ snapshot: ## Build binaries for every platform with goreleaser
 	goreleaser release --snapshot --clean
 
 # LINT
-.PHONY: fmt
-fmt: ## Format Go source files
+.PHONY: format
+format: ## Format Go source files
 	gofmt -w .
 
-.PHONY: fmt_check
-fmt_check: ## Fail if any Go source file is unformatted
+.PHONY: check_format
+check_format: ## Fail if any Go source file is unformatted
 	@out="$$(gofmt -l .)"; \
 	if [[ -n "$$out" ]]; then \
 	  printf 'Unformatted Go files:\n%s\n' "$$out"; \
 	  exit 1; \
 	fi
 
-.PHONY: mod_check
-mod_check: ## Fail if go.mod or go.sum is untidy
+.PHONY: check_mod
+check_mod: ## Fail if go.mod or go.sum is untidy
 	go mod tidy
 	git diff --exit-code go.mod go.sum
 
@@ -43,8 +43,8 @@ mod_check: ## Fail if go.mod or go.sum is untidy
 vet: ## Run go vet
 	go vet ./...
 
-.PHONY: lint
-lint: fmt_check mod_check vet ## Run every lint check
+.PHONY: check_all
+check_all: check_format check_mod vet ## Run every static check
 
 .PHONY: vuln
 vuln: ## Scan dependencies and the standard library for known vulnerabilities
@@ -85,7 +85,7 @@ get_changelog: ## Print release notes for TAG (default: latest tag; override wit
 
 # CI
 .PHONY: ci
-ci: fmt_check mod_check vet test ## Run every check the lint and test workflows run
+ci: check_format check_mod vet test ## Run every check the lint and test workflows run
 
 .PHONY: clean
 clean: ## Remove build artefacts
