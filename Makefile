@@ -74,7 +74,7 @@ test_integration: ## Run the integration tests, which need a real remote host
 
 .PHONY: test_coverage
 test_coverage: ## Report test coverage over the internal packages
-	go test -race -count=1 -coverpkg=./internal/... -coverprofile=coverage.out ./...
+	go test -race -count=1 -tags=integration -coverpkg=./internal/... -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out
 	rm coverage.out
 
