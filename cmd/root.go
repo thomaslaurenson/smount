@@ -3,10 +3,12 @@
 package cmd
 
 import (
-	"errors"
+	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/thomaslaurenson/smount/internal/tilde"
 	"github.com/thomaslaurenson/smount/internal/ui"
 )
 
@@ -42,21 +44,37 @@ func reservedNames(cmd *cobra.Command) map[string]bool {
 	return names
 }
 
-// Execute runs the command line interface.
+// ErrCancelled is reported when the user backs out of a prompt.
 //
-// A cancelled prompt is not a failure. Backing out of a menu is a normal way to
-// finish, so it is reported and exits zero rather than being passed up as an
-// error the entry point would print and exit one for.
-func Execute() error {
-	err := newRootCmd().Execute()
-	if errors.Is(err, ui.ErrCancelled) {
-		ui.Infof("cancelled")
-		return nil
-	}
-	return err
+// It is re-exported from ui so that the entry point can recognise a cancelled
+// prompt without reaching into internal for the sentinel.
+var ErrCancelled = ui.ErrCancelled
+
+// App holds the dependencies every subcommand shares.
+type App struct {
+	ui   *ui.UI
+	home tilde.Home
 }
 
-func newRootCmd() *cobra.Command {
+// NewRootCmd builds the command tree, reading answers from in and writing
+// output to out and errw.
+//
+// home is the directory every ~ path resolves against. It is read from the
+// environment by the entry point and passed in, so nothing under internal has
+// to look it up for itself.
+//
+// The streams are parameters rather than the process ones so that a test can
+// build the same tree this binary does and read back what it wrote.
+//
+// Whether smount may prompt is settled here, once, and handed to the UI.
+// os.Stderr is asked directly because the question is about the process: a
+// prompt is drawn on the real error stream or not at all, whatever errw is
+// wrapped in.
+func NewRootCmd(home string, in *os.File, out, errw io.Writer) *cobra.Command {
+	a := &App{
+		ui:   ui.New(in, errw, ui.IsTerminal(in, os.Stderr)),
+		home: tilde.Home(home),
+	}
 	opts := &mountOptions{}
 
 	root := &cobra.Command{
@@ -67,20 +85,23 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors:     true,
 		SilenceUsage:      true,
 		Version:           Version,
-		ValidArgsFunction: completeTargets,
+		ValidArgsFunction: a.completeTargets,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMount(cmd, opts, args)
+			return a.runMount(cmd, opts, args)
 		},
 	}
+	root.SetIn(in)
+	root.SetOut(out)
+	root.SetErr(errw)
 	opts.register(root)
 
 	root.AddCommand(
-		newLsCmd(),
-		newUmountCmd(),
-		newHostsCmd(),
-		newFavCmd(),
-		newCheckCmd(),
-		versionCmd,
+		newLsCmd(a.home),
+		a.newUmountCmd(),
+		a.newHostsCmd(),
+		a.newFavCmd(),
+		a.newCheckCmd(),
+		newVersionCmd(),
 	)
 	return root
 }

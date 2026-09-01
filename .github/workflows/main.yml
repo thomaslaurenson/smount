@@ -12,9 +12,6 @@ on:
       - .gpipe.yml
       - Makefile
 
-permissions:
-  contents: write
-
 concurrency:
   group: main-${{ github.ref }}
   cancel-in-progress: false
@@ -29,3 +26,5 @@ jobs:
   prerelease:
     needs: [lint, test]
     uses: ./.github/workflows/prerelease.yml
+    permissions:
+      contents: write

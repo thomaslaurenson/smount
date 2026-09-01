@@ -1,10 +1,10 @@
 # smount
 
-![Build Status](https://img.shields.io/github/actions/workflow/status/thomaslaurenson/smount/tag.yml?style=flat&logo=github) ![Test Status](https://img.shields.io/github/actions/workflow/status/thomaslaurenson/smount/tag.yml?style=flat&label=test&logo=github)
+![Release Build](https://img.shields.io/github/actions/workflow/status/thomaslaurenson/smount/tag.yml?style=flat&label=release&logo=github) ![Main Build](https://img.shields.io/github/actions/workflow/status/thomaslaurenson/smount/main.yml?style=flat&label=main&logo=github)
 
 ![Release Version](https://img.shields.io/github/v/release/thomaslaurenson/smount?style=flat&logo=github) ![Release downloads](https://img.shields.io/github/downloads/thomaslaurenson/smount/total?label=downloads&logo=github)
 
-![Go Version](https://img.shields.io/github/go-mod/go-version/thomaslaurenson/smount?logo=go) ![Code Coverage](https://img.shields.io/badge/Coverage-68.5%25-blue?logo=go)
+![Go Version](https://img.shields.io/github/go-mod/go-version/thomaslaurenson/smount?logo=go) ![Code Coverage](https://img.shields.io/badge/Coverage-72.5%25-blue?logo=go)
 
 Mount remote directories over SSH, using the hosts already in your ssh config.
 

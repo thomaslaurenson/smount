@@ -26,17 +26,17 @@ import (
 // Hosts are offered unresolved. Completion runs on every tab press, and eighty
 // ssh processes is too much work to do while somebody is waiting to finish
 // typing a word.
-func completeTargets(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func (a *App) completeTargets(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var out []string
-	if store, err := favourites.Load(); err == nil {
+	if store, err := favourites.Load(a.home); err == nil {
 		out = append(out, store.Names()...)
 	}
-	if cfg, err := config.Load(); err == nil {
-		if aliases, err := sshconf.Aliases(cfg.SSHConfigPath()); err == nil {
+	if cfg, err := config.Load(a.home); err == nil {
+		if aliases, err := sshconf.Aliases(string(a.home), cfg.SSHConfigPath()); err == nil {
 			out = append(out, aliases...)
 		}
 	}
@@ -45,11 +45,11 @@ func completeTargets(_ *cobra.Command, args []string, toComplete string) ([]stri
 
 // completeFavourites offers saved favourite names for a first argument that
 // names an existing favourite.
-func completeFavourites(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func (a *App) completeFavourites(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	store, err := favourites.Load()
+	store, err := favourites.Load(a.home)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -63,15 +63,15 @@ func completeFavourites(_ *cobra.Command, args []string, toComplete string) ([]s
 // argument names the favourite being created, and completing it from the list
 // of hosts offers names for something that does not exist yet, in the one slot
 // where the user is inventing a name rather than choosing one.
-func completeHosts(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func (a *App) completeHosts(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 1 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	cfg, err := config.Load()
+	cfg, err := config.Load(a.home)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	aliases, err := sshconf.Aliases(cfg.SSHConfigPath())
+	aliases, err := sshconf.Aliases(string(a.home), cfg.SSHConfigPath())
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -79,11 +79,11 @@ func completeHosts(_ *cobra.Command, args []string, toComplete string) ([]string
 }
 
 // completeMounts offers the names of active mounts for a first argument.
-func completeMounts(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func completeMounts(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	mounts, err := mount.Active()
+	mounts, err := mount.Active(cmd.Context())
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

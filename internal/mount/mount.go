@@ -2,8 +2,10 @@
 package mount
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -136,10 +138,14 @@ func SSHFSPath() (string, error) {
 
 // Run creates the mount point and mounts the spec with sshfs.
 //
-// sshfs inherits the standard streams because it may need to prompt for a key
+// sshfs is given the caller's streams because it may need to prompt for a key
 // passphrase or a password, and its own diagnostics on failure are better than
 // anything that could be reconstructed from an exit status.
-func Run(s Spec) error {
+//
+// Pass the process's own files here rather than a wrapper around them. os/exec
+// hands a *os.File to the child as a descriptor and gives anything else a pipe,
+// and ssh behaves differently when its input is not a terminal.
+func Run(ctx context.Context, s Spec, in io.Reader, out, errw io.Writer) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -147,15 +153,15 @@ func Run(s Spec) error {
 	if err != nil {
 		return err
 	}
-	created, err := PrepareTarget(s.Target)
+	created, err := PrepareTarget(ctx, s.Target)
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(bin, s.Args()...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd := exec.CommandContext(ctx, bin, s.Args()...)
+	cmd.Stdin = in
+	cmd.Stdout = out
+	cmd.Stderr = errw
 	if err := cmd.Run(); err != nil {
 		// Only a directory this call made is safe to remove. PrepareTarget
 		// accepts an empty directory that was already there, and that one
@@ -180,7 +186,7 @@ func Run(s Spec) error {
 //
 // The created flag exists so a failed mount only removes a directory this call
 // made. An empty directory that was already there is somebody else's.
-func PrepareTarget(target string) (created bool, err error) {
+func PrepareTarget(ctx context.Context, target string) (created bool, err error) {
 	info, err := os.Stat(target)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -196,7 +202,7 @@ func PrepareTarget(target string) (created bool, err error) {
 		return false, fmt.Errorf("%s: exists and is not a directory", target)
 	}
 
-	if _, err := Find(target); err == nil {
+	if _, err := Find(ctx, target); err == nil {
 		return false, fmt.Errorf("%s: %w", target, ErrAlreadyMounted)
 	}
 
@@ -273,13 +279,13 @@ func forceUnmountFlag() string {
 //
 // force detaches a mount whose connection has dropped, which a normal unmount
 // of one blocks on.
-func Unmount(target, base string, force bool) error {
+func Unmount(ctx context.Context, target, base string, force bool) error {
 	bin, args, err := UnmountTool(force)
 	if err != nil {
 		return err
 	}
 
-	out, err := exec.Command(bin, append(args, target)...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, bin, append(args, target)...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {

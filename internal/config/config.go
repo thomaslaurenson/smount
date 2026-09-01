@@ -29,6 +29,13 @@ type Config struct {
 	MountBase string   `json:"mount_base"`
 	Options   []string `json:"options"`
 	SSHConfig string   `json:"ssh_config"`
+
+	// Home is the directory the ~ paths above resolve against.
+	//
+	// It is not part of the config file, which is why it is not marshalled: it
+	// is a fact about the process, settled in cmd and carried here so that no
+	// package below has to read the environment to resolve a path.
+	Home tilde.Home `json:"-"`
 }
 
 // Defaults returns the settings smount uses when no config file is present.
@@ -41,8 +48,9 @@ type Config struct {
 // ServerAliveInterval and ServerAliveCountMax are not optional extras next to
 // reconnect: without them ssh never notices a dropped link, so reconnect has no
 // failure to react to and the mount hangs instead of recovering.
-func Defaults() *Config {
+func Defaults(home tilde.Home) *Config {
 	return &Config{
+		Home:      home,
 		MountBase: DefaultMountBase,
 		Options: []string{
 			"reconnect",
@@ -58,22 +66,15 @@ func Defaults() *Config {
 // DirPath returns the path to smount's configuration directory.
 //
 // It does not create the directory, so use this for read-only lookups.
-func DirPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, DirName), nil
+func DirPath(home tilde.Home) string {
+	return filepath.Join(string(home), DirName)
 }
 
 // Dir returns smount's configuration directory, creating it if absent.
 //
 // Use this before any write.
-func Dir() (string, error) {
-	dir, err := DirPath()
-	if err != nil {
-		return "", err
-	}
+func Dir(home tilde.Home) (string, error) {
+	dir := DirPath(home)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -81,21 +82,13 @@ func Dir() (string, error) {
 }
 
 // Path returns the path to the configuration file.
-func Path() (string, error) {
-	dir, err := DirPath()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, configFilename), nil
+func Path(home tilde.Home) string {
+	return filepath.Join(DirPath(home), configFilename)
 }
 
 // Exists reports whether a configuration file has been written.
-func Exists() bool {
-	path, err := Path()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(path)
+func Exists(home tilde.Home) bool {
+	_, err := os.Stat(Path(home))
 	return err == nil
 }
 
@@ -103,20 +96,17 @@ func Exists() bool {
 //
 // Fields absent from the file keep their default, so a partial config file
 // only overrides what it actually mentions.
-func Load() (*Config, error) {
-	path, err := Path()
-	if err != nil {
-		return nil, err
-	}
+func Load(home tilde.Home) (*Config, error) {
+	path := Path(home)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return Defaults(), nil
+			return Defaults(home), nil
 		}
 		return nil, err
 	}
 
-	c := Defaults()
+	c := Defaults(home)
 	if err := json.Unmarshal(data, c); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
@@ -126,13 +116,10 @@ func Load() (*Config, error) {
 
 // Save writes the configuration file, creating the directory if needed.
 func Save(c *Config) error {
-	if _, err := Dir(); err != nil {
+	if _, err := Dir(c.Home); err != nil {
 		return err
 	}
-	path, err := Path()
-	if err != nil {
-		return err
-	}
+	path := Path(c.Home)
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
@@ -142,17 +129,17 @@ func Save(c *Config) error {
 
 // MountBaseDir returns the mount base as an absolute path.
 func (c *Config) MountBaseDir() string {
-	return tilde.Expand(c.MountBase)
+	return c.Home.Expand(c.MountBase)
 }
 
 // SSHConfigPath returns the OpenSSH client config as an absolute path.
 func (c *Config) SSHConfigPath() string {
-	return tilde.Expand(c.SSHConfig)
+	return c.Home.Expand(c.SSHConfig)
 }
 
 // applyDefaults fills in any field the config file left empty.
 func (c *Config) applyDefaults() {
-	d := Defaults()
+	d := Defaults(c.Home)
 	if c.MountBase == "" {
 		c.MountBase = d.MountBase
 	}

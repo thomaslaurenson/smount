@@ -1,13 +1,15 @@
-name: Lint
+name: Vuln
 
-on: workflow_call
-
-permissions:
-  contents: read
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 jobs:
-  go_lint:
+  vuln:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
@@ -16,4 +18,4 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - run: make check_all
+      - run: make vuln

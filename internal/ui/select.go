@@ -3,13 +3,11 @@ package ui
 import (
 	"bufio"
 	"cmp"
+	"context"
 	"fmt"
 	"io"
-	"os"
-	"os/signal"
 	"slices"
 	"strings"
-	"syscall"
 	"unicode/utf8"
 
 	"golang.org/x/term"
@@ -41,45 +39,48 @@ type Item struct {
 	Detail string
 }
 
-// Select shows a filterable list on stderr and returns the chosen index.
+// Select shows a filterable list on the output stream and returns the chosen
+// index.
 //
 // The index is into the original slice. It reports ErrCancelled if the user
-// backs out.
-func Select(title string, items []Item) (int, error) {
+// backs out, and the context's error if the work was cancelled while the list
+// was on screen. Either way the terminal is put back as it was found.
+func (u *UI) Select(ctx context.Context, title string, items []Item) (int, error) {
 	if len(items) == 0 {
 		return -1, ErrNoItems
 	}
-	if !Interactive() {
+	if !u.Interactive() {
 		return -1, ErrNotTerminal
 	}
 
-	fd := int(os.Stdin.Fd())
-	state, err := term.MakeRaw(fd)
+	state, err := term.MakeRaw(u.fd)
 	if err != nil {
 		return -1, err
 	}
-	restore := func() { _ = term.Restore(fd, state) }
-	defer restore()
-	defer restoreOnSignal(restore)()
+	defer func() { _ = term.Restore(u.fd, state) }()
 
 	s := &selector{
 		title: title,
 		items: items,
-		in:    input,
-		out:   output,
+		out:   u.out,
 	}
-	s.measure(fd)
+	s.measure(u.fd)
 	s.refilter()
 	defer s.clear()
 
+	keys := readKeys(u.in)
+
 	for {
 		s.redraw()
-		r, _, err := s.in.ReadRune()
-		if err != nil {
+		k, ok := next(ctx, keys)
+		if !ok {
+			if err := ctx.Err(); err != nil {
+				return -1, err
+			}
 			return -1, ErrCancelled
 		}
 
-		switch r {
+		switch k.r {
 		case keyCtrlC, keyCtrlD:
 			return -1, ErrCancelled
 		case keyEnter, keyLineFeed:
@@ -102,57 +103,60 @@ func Select(title string, items []Item) (int, error) {
 		case keyEscape:
 			// A bare Escape and the start of an arrow key sequence are the same
 			// byte. Terminals emit a sequence as one burst, so anything already
-			// buffered means more of a sequence rather than a lone keypress.
-			if s.in.Buffered() == 0 {
+			// waiting behind this rune means more of a sequence rather than a
+			// lone keypress.
+			if !k.more {
 				return -1, ErrCancelled
 			}
-			s.escape()
+			s.escape(ctx, keys)
 		default:
-			if r >= ' ' && r != keyDelete {
-				s.filter = append(s.filter, r)
+			if k.r >= ' ' && k.r != keyDelete {
+				s.filter = append(s.filter, k.r)
 				s.refilter()
 			}
 		}
 	}
 }
 
-// signalExitBase is the offset a shell adds to a signal number when it reports
-// what killed a process, so a program that exits on a signal itself reports the
-// same status.
-const signalExitBase = 128
-
-// restoreOnSignal arranges for restore to run if the process is signalled, and
-// returns the function that stops watching.
+// key is one rune read from the terminal, with the reader's view of whether
+// more input was already waiting behind it.
 //
-// A signal terminates the process without running deferred functions, so
-// without this the shell is handed back a terminal still in raw mode with echo
-// off, and the user has to type "stty sane" blind to recover it. Pressing
-// Ctrl-C at the prompt is a different thing and already works: raw mode
-// delivers it as a byte rather than a signal.
-//
-// It exits rather than re-raising the signal, because sending a signal to
-// oneself is not portable and every target has to build. The exit status still
-// says what happened.
-func restoreOnSignal(restore func()) func() {
-	received := make(chan os.Signal, 1)
-	signal.Notify(received, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+// more is recorded at the moment of the read, by the one goroutine that owns
+// the reader, because asking the reader afterwards from here would race with it.
+type key struct {
+	r    rune
+	more bool
+}
 
+// readKeys reads runes off in until it fails, and returns the channel they
+// arrive on. The channel is closed when the reader stops.
+//
+// A terminal read cannot be interrupted, so the goroutine outlives a cancelled
+// Select and is left blocked on the read. That is the price of a menu that
+// returns when the work is cancelled, and the process is on its way out by then.
+func readKeys(in *bufio.Reader) <-chan key {
+	keys := make(chan key)
 	go func() {
-		sig, ok := <-received
-		if !ok {
-			return
+		defer close(keys)
+		for {
+			r, _, err := in.ReadRune()
+			if err != nil {
+				return
+			}
+			keys <- key{r: r, more: in.Buffered() > 0}
 		}
-		restore()
-		status := signalExitBase
-		if number, ok := sig.(syscall.Signal); ok {
-			status += int(number)
-		}
-		os.Exit(status)
 	}()
+	return keys
+}
 
-	return func() {
-		signal.Stop(received)
-		close(received)
+// next takes the following key, reporting false when the reader has stopped or
+// the context has been cancelled.
+func next(ctx context.Context, keys <-chan key) (key, bool) {
+	select {
+	case <-ctx.Done():
+		return key{}, false
+	case k, ok := <-keys:
+		return k, ok
 	}
 }
 
@@ -167,7 +171,6 @@ type selector struct {
 	drawn   int
 	width   int
 	visible int
-	in      *bufio.Reader
 	out     io.Writer
 }
 
@@ -192,26 +195,26 @@ func (s *selector) measure(fd int) {
 
 // escape consumes the remainder of an ANSI escape sequence and acts on the
 // arrow keys, ignoring everything else.
-func (s *selector) escape() {
-	r, _, err := s.in.ReadRune()
-	if err != nil {
+func (s *selector) escape(ctx context.Context, keys <-chan key) {
+	k, ok := next(ctx, keys)
+	if !ok {
 		return
 	}
-	if r != '[' && r != 'O' {
+	if k.r != '[' && k.r != 'O' {
 		return
 	}
 	// A CSI sequence runs through its parameter bytes and ends at the first
 	// byte in the range @ to ~, which is the one that says what it was.
 	for {
-		r, _, err = s.in.ReadRune()
-		if err != nil {
+		k, ok = next(ctx, keys)
+		if !ok {
 			return
 		}
-		if r >= '@' && r <= '~' {
+		if k.r >= '@' && k.r <= '~' {
 			break
 		}
 	}
-	switch r {
+	switch k.r {
 	case 'A':
 		s.move(-1)
 	case 'B':

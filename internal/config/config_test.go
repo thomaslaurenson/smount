@@ -5,22 +5,22 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/thomaslaurenson/smount/internal/tilde"
 )
 
-// These tests set HOME, which is process wide state, so they do not call
-// t.Parallel().
-
 func TestLoadWithoutFileReturnsDefaults(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
 
-	got, err := Load()
+	got, err := Load(home)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !reflect.DeepEqual(got, Defaults()) {
-		t.Errorf("Load() = %+v, want %+v", got, Defaults())
+	if !reflect.DeepEqual(got, Defaults(home)) {
+		t.Errorf("Load() = %+v, want %+v", got, Defaults(home))
 	}
-	if Exists() {
+	if Exists(home) {
 		t.Error("Exists() = true before anything was written, want false")
 	}
 }
@@ -29,7 +29,8 @@ func TestDefaultsPairKeepaliveWithReconnect(t *testing.T) {
 	t.Parallel()
 
 	var reconnect, interval, count bool
-	for _, opt := range Defaults().Options {
+	// The defaults do not depend on the home directory, only the paths do.
+	for _, opt := range Defaults("").Options {
 		switch opt {
 		case "reconnect":
 			reconnect = true
@@ -47,19 +48,19 @@ func TestDefaultsPairKeepaliveWithReconnect(t *testing.T) {
 }
 
 func TestLoadPartialFileKeepsDefaults(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
 	writeConfig(t, home, `{"mount_base": "~/mnt"}`)
 
-	got, err := Load()
+	got, err := Load(home)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 	if got.MountBase != "~/mnt" {
 		t.Errorf("MountBase = %q, want ~/mnt", got.MountBase)
 	}
-	if !reflect.DeepEqual(got.Options, Defaults().Options) {
-		t.Errorf("Options = %v, want the defaults %v", got.Options, Defaults().Options)
+	if !reflect.DeepEqual(got.Options, Defaults(home).Options) {
+		t.Errorf("Options = %v, want the defaults %v", got.Options, Defaults(home).Options)
 	}
 	if got.SSHConfig != DefaultSSHConfig {
 		t.Errorf("SSHConfig = %q, want %q", got.SSHConfig, DefaultSSHConfig)
@@ -70,11 +71,11 @@ func TestLoadPartialFileKeepsDefaults(t *testing.T) {
 // does not mention and one it sets to an empty list. The first takes the
 // default, the second means no options at all.
 func TestLoadEmptyOptionsIsHonoured(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
 	writeConfig(t, home, `{"options": []}`)
 
-	got, err := Load()
+	got, err := Load(home)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -84,29 +85,30 @@ func TestLoadEmptyOptionsIsHonoured(t *testing.T) {
 }
 
 func TestLoadRejectsMalformedJSON(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
 	writeConfig(t, home, "{not json")
 
-	if _, err := Load(); err == nil {
+	if _, err := Load(home); err == nil {
 		t.Error("Load() on malformed JSON = nil error, want an error")
 	}
 }
 
 func TestSaveRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
 
-	want := Defaults()
+	want := Defaults(home)
 	want.MountBase = "~/mnt"
 	want.Options = []string{"reconnect"}
 	if err := Save(want); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
-	if !Exists() {
+	if !Exists(home) {
 		t.Error("Exists() = false after Save(), want true")
 	}
 
-	got, err := Load()
+	got, err := Load(home)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -116,22 +118,23 @@ func TestSaveRoundTrip(t *testing.T) {
 }
 
 func TestPathsExpandTilde(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
 
-	c := Defaults()
-	if got, want := c.MountBaseDir(), filepath.Join(home, "sshfs"); got != want {
+	c := Defaults(home)
+	if got, want := c.MountBaseDir(), filepath.Join(string(home), "sshfs"); got != want {
 		t.Errorf("MountBaseDir() = %q, want %q", got, want)
 	}
-	if got, want := c.SSHConfigPath(), filepath.Join(home, ".ssh/config"); got != want {
+	if got, want := c.SSHConfigPath(), filepath.Join(string(home), ".ssh/config"); got != want {
 		t.Errorf("SSHConfigPath() = %q, want %q", got, want)
 	}
 }
 
 func TestDirCreatesWithOwnerOnlyPermissions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
 
-	dir, err := Dir()
+	dir, err := Dir(home)
 	if err != nil {
 		t.Fatalf("Dir() error = %v", err)
 	}
@@ -144,9 +147,9 @@ func TestDirCreatesWithOwnerOnlyPermissions(t *testing.T) {
 	}
 }
 
-func writeConfig(t *testing.T, home, content string) {
+func writeConfig(t *testing.T, home tilde.Home, content string) {
 	t.Helper()
-	dir := filepath.Join(home, DirName)
+	dir := filepath.Join(string(home), DirName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("creating %s: %v", dir, err)
 	}

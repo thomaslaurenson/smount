@@ -3,6 +3,7 @@ package mount
 import (
 	"bufio"
 	"cmp"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -74,7 +75,7 @@ func (m Mount) Describe() string {
 // Active returns every sshfs mount visible to this process.
 //
 // Mounts are sorted by mount point.
-func Active() ([]Mount, error) {
+func Active(ctx context.Context) ([]Mount, error) {
 	var (
 		mounts []Mount
 		err    error
@@ -83,7 +84,7 @@ func Active() ([]Mount, error) {
 		defer file.Close()
 		mounts, err = parseMountinfo(file)
 	} else {
-		mounts, err = activeFromCommand()
+		mounts, err = activeFromCommand(ctx)
 	}
 	if err != nil {
 		return nil, err
@@ -101,8 +102,8 @@ func Active() ([]Mount, error) {
 // Find returns the active mount matching name, reading the mount table itself.
 //
 // name may be a mount point path or the final element of one.
-func Find(name string) (*Mount, error) {
-	mounts, err := Active()
+func Find(ctx context.Context, name string) (*Mount, error) {
+	mounts, err := Active(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -203,8 +204,8 @@ func parseMountinfo(r io.Reader) ([]Mount, error) {
 
 // activeFromCommand reads the mount table on systems without mountinfo, which
 // in practice means macOS with macFUSE.
-func activeFromCommand() ([]Mount, error) {
-	out, err := exec.Command("mount").Output()
+func activeFromCommand(ctx context.Context) ([]Mount, error) {
+	out, err := exec.CommandContext(ctx, "mount").Output()
 	if err != nil {
 		return nil, err
 	}

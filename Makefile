@@ -2,62 +2,88 @@ SHELL := /bin/bash
 
 BINARY  := smount
 MODULE  := github.com/thomaslaurenson/smount
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+VERSION := $(shell git describe --tags --always --dirty --match 'v*' 2>/dev/null || echo "dev")
 LDFLAGS := -s -w -X $(MODULE)/cmd.Version=$(VERSION)
 
-TAG ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
+# goimports formats exactly as gofmt does and groups imports as well, which
+# gofmt will not do: it sorts every import into one alphabetical block.
+GOIMPORTS := go run golang.org/x/tools/cmd/goimports@latest -local $(MODULE)
+
+TAG ?= $(shell git describe --tags --abbrev=0 --match 'v*' 2>/dev/null)
+
+##@ BUILD
 
 .PHONY: help
 help: ## Show this help message
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
+	@awk 'BEGIN {FS = ":.*?## "} /^##@ / {printf "\n%s\n", substr($$0, 5)} \
+		/^[a-zA-Z_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-# BUILD
 .PHONY: build
 build: ## Build the binary for the current platform
 	go build -ldflags="$(LDFLAGS)" -o dist/$(BINARY) .
 
 .PHONY: snapshot
 snapshot: ## Build binaries for every platform with goreleaser
-	goreleaser release --snapshot --clean
+	goreleaser build --snapshot --clean
 
-# LINT
-.PHONY: fmt
-fmt: ## Format Go source files
-	gofmt -w .
+##@ TEST
 
-.PHONY: fmt_check
-fmt_check: ## Fail if any Go source file is unformatted
-	@out="$$(gofmt -l .)"; \
+.PHONY: test
+test: ## Run all tests with the race detector
+	go test -race -count=1 ./...
+
+.PHONY: test_integration
+test_integration: ## Run the integration tests, which need a real remote host
+	go test -race -count=1 -tags=integration ./...
+
+.PHONY: test_coverage
+test_coverage: ## Report test coverage over the internal packages
+	go test -race -count=1 -tags=integration -coverpkg=./internal/... -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+	rm coverage.out
+
+##@ LINT
+
+.PHONY: format
+format: ## Format Go source files and group their imports
+	$(GOIMPORTS) -w .
+
+.PHONY: check_format
+check_format: ## Fail if any Go source file is unformatted or has ungrouped imports
+	@out="$$($(GOIMPORTS) -l .)"; \
 	if [[ -n "$$out" ]]; then \
 	  printf 'Unformatted Go files:\n%s\n' "$$out"; \
 	  exit 1; \
 	fi
 
-.PHONY: mod_check
-mod_check: ## Fail if go.mod or go.sum is untidy
+.PHONY: check_mod
+check_mod: ## Fail if go.mod or go.sum is untidy
 	go mod tidy
 	git diff --exit-code go.mod go.sum
 
 .PHONY: vet
-vet: ## Run go vet
+vet: ## Run go vet, including the build-tagged integration tests
 	go vet ./...
+	go vet -tags=integration ./...
 
-.PHONY: lint
-lint: fmt_check mod_check vet ## Run every lint check
+.PHONY: check_cross
+check_cross: ## Type-check the platform-specific files CI never builds
+	GOOS=windows go vet ./...
+	GOOS=darwin go vet ./...
 
-# TEST
-.PHONY: test
-test: ## Run all tests with the race detector
-	go test -race -count=1 ./...
+.PHONY: check_all
+check_all: check_format check_mod vet check_cross ## Run every static check
 
-.PHONY: test_coverage
-test_coverage: ## Report test coverage over the internal packages
-	go test -race -count=1 -coverpkg=./internal/... -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out
-	rm coverage.out
+.PHONY: vuln
+vuln: ## Scan dependencies and the standard library for known vulnerabilities
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-# GET
+##@ GET
+
+.PHONY: get_version
+get_version: ## Print the version build would stamp into the binary
+	@echo "$(VERSION)"
+
 .PHONY: get_changelog
 get_changelog: ## Print release notes for TAG (default: latest tag; override with TAG=v1.0.0)
 	@tag="$(TAG)"; tag="$${tag#v}"; \
@@ -79,9 +105,10 @@ get_changelog: ## Print release notes for TAG (default: latest tag; override wit
 	fi; \
 	printf '%s\n' "$$notes"
 
-# CI
+##@ CI
+
 .PHONY: ci
-ci: fmt_check mod_check vet test ## Run every check the lint and test workflows run
+ci: check_all test ## Run every check the lint and test workflows run
 
 .PHONY: clean
 clean: ## Remove build artefacts

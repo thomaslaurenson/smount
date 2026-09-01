@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+
+	"github.com/thomaslaurenson/smount/internal/tilde"
 )
 
 func TestSlug(t *testing.T) {
@@ -296,9 +298,10 @@ func TestMigrateLegacyMissingFile(t *testing.T) {
 // TestLoadSaveRoundTrip writes through the real file paths, so it sets HOME and
 // cannot run in parallel with anything else that reads it.
 func TestLoadSaveRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
 
-	empty, err := Load()
+	empty, err := Load(home)
 	if err != nil {
 		t.Fatalf("Load() with no file error = %v", err)
 	}
@@ -309,11 +312,11 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 	if err := empty.Add(Favourite{Name: "logs", Host: "web01", Path: "/var/log", ReadOnly: true}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	if err := Save(empty); err != nil {
+	if err := Save(home, empty); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	loaded, err := Load()
+	loaded, err := Load(home)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -326,20 +329,18 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 }
 
 func TestSaveUsesOwnerOnlyPermissions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
 
 	s := &Store{Version: Version}
 	if err := s.Add(Favourite{Name: "logs", Host: "web01"}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	if err := Save(s); err != nil {
+	if err := Save(home, s); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	path, err := Path()
-	if err != nil {
-		t.Fatalf("Path() error = %v", err)
-	}
+	path := Path(home)
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("Stat() error = %v", err)
