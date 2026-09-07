@@ -8,6 +8,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"golang.org/x/term"
@@ -68,11 +69,14 @@ func (u *UI) Select(ctx context.Context, title string, items []Item) (int, error
 	s.refilter()
 	defer s.clear()
 
-	keys := readKeys(u.in)
+	// Stopped before the terminal is restored, so that no read of the shared
+	// reader is still outstanding once this returns.
+	keys := newKeySource(u.in)
+	defer keys.close()
 
 	for {
 		s.redraw()
-		k, ok := next(ctx, keys)
+		k, ok := keys.next(ctx)
 		if !ok {
 			if err := ctx.Err(); err != nil {
 				return -1, err
@@ -128,35 +132,102 @@ type key struct {
 	more bool
 }
 
-// readKeys reads runes off in until it fails, and returns the channel they
-// arrive on. The channel is closed when the reader stops.
+// keySource serves runes from a reader one at a time, and only while it is
+// being asked for them.
 //
-// A terminal read cannot be interrupted, so the goroutine outlives a cancelled
-// Select and is left blocked on the read. That is the price of a menu that
-// returns when the work is cancelled, and the process is on its way out by then.
-func readKeys(in *bufio.Reader) <-chan key {
-	keys := make(chan key)
-	go func() {
-		defer close(keys)
-		for {
-			r, _, err := in.ReadRune()
-			if err != nil {
-				return
-			}
-			keys <- key{r: r, more: in.Buffered() > 0}
-		}
-	}()
-	return keys
+// The read has to happen off the calling goroutine, because a terminal read
+// cannot be interrupted and Select still has to return when its context is
+// cancelled. It must not be left outstanding once Select has returned, though:
+// the reader is the one every other prompt shares, and stdin is handed to sshfs
+// as well, so a read still waiting on it takes a keystroke meant for the
+// confirmation prompt or a passphrase meant for ssh. Reading one rune per
+// request, rather than reading ahead in a loop, is what bounds it: between
+// requests the goroutine is parked on a channel rather than on the terminal.
+type keySource struct {
+	// req carries a request for one rune. It is unbuffered, so a read only
+	// starts once next is committed to waiting for the answer.
+	req chan struct{}
+
+	// keys carries the answer to one request.
+	keys chan key
+
+	// stop tells the goroutine to finish rather than serve another request.
+	stop chan struct{}
+
+	// done is closed when the goroutine has finished, so next can tell an
+	// exhausted reader from a slow one instead of blocking on a request
+	// nothing will take.
+	done chan struct{}
+
+	once sync.Once
 }
 
-// next takes the following key, reporting false when the reader has stopped or
-// the context has been cancelled.
-func next(ctx context.Context, keys <-chan key) (key, bool) {
+// newKeySource starts a reader over in. Call close when the prompt is finished
+// with it.
+func newKeySource(in *bufio.Reader) *keySource {
+	s := &keySource{
+		req:  make(chan struct{}),
+		keys: make(chan key),
+		stop: make(chan struct{}),
+		done: make(chan struct{}),
+	}
+	go s.run(in)
+	return s
+}
+
+// run serves one rune per request until it is stopped or the reader fails.
+func (s *keySource) run(in *bufio.Reader) {
+	defer close(s.done)
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-s.req:
+		}
+
+		r, _, err := in.ReadRune()
+		if err != nil {
+			return
+		}
+
+		// more is recorded here, by the one goroutine that owns the reader,
+		// because asking the reader from the other side would race with it.
+		select {
+		case s.keys <- key{r: r, more: in.Buffered() > 0}:
+		case <-s.stop:
+			return
+		}
+	}
+}
+
+// close stops the reader.
+//
+// It is safe to call more than once, and after it returns the goroutine cannot
+// begin another read. A read already in flight is one this prompt asked for and
+// then abandoned, which only happens when the context was cancelled and the
+// process is on its way out.
+func (s *keySource) close() {
+	s.once.Do(func() { close(s.stop) })
+}
+
+// next asks for the following key, reporting false when the reader has stopped
+// or the context has been cancelled.
+func (s *keySource) next(ctx context.Context) (key, bool) {
 	select {
+	case s.req <- struct{}{}:
+	case <-s.done:
+		return key{}, false
 	case <-ctx.Done():
 		return key{}, false
-	case k, ok := <-keys:
-		return k, ok
+	}
+
+	select {
+	case k := <-s.keys:
+		return k, true
+	case <-s.done:
+		return key{}, false
+	case <-ctx.Done():
+		return key{}, false
 	}
 }
 
@@ -195,8 +266,8 @@ func (s *selector) measure(fd int) {
 
 // escape consumes the remainder of an ANSI escape sequence and acts on the
 // arrow keys, ignoring everything else.
-func (s *selector) escape(ctx context.Context, keys <-chan key) {
-	k, ok := next(ctx, keys)
+func (s *selector) escape(ctx context.Context, keys *keySource) {
+	k, ok := keys.next(ctx)
 	if !ok {
 		return
 	}
@@ -206,7 +277,7 @@ func (s *selector) escape(ctx context.Context, keys <-chan key) {
 	// A CSI sequence runs through its parameter bytes and ends at the first
 	// byte in the range @ to ~, which is the one that says what it was.
 	for {
-		k, ok = next(ctx, keys)
+		k, ok = keys.next(ctx)
 		if !ok {
 			return
 		}
