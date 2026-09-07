@@ -19,16 +19,66 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
-// resolveWorkers bounds how many ssh processes run at once when resolving a
-// whole config. Each one is short lived and does no network work, so this is
-// about not forking eighty processes at the same instant rather than about
-// load.
-const resolveWorkers = 8
+// resolveWorkerCap bounds how many ssh processes run at once when resolving a
+// whole config, however many cores are available.
+//
+// Each one is short lived, so this is about not forking a config's worth of
+// processes at the same instant rather than about load. Past this the wall
+// clock stops improving, and a config whose Match exec does a name lookup gets
+// worse rather than better: the lookups land on the resolver as one burst and
+// start timing out in numbers they would not have alone.
+const resolveWorkerCap = 32
+
+// resolveWorkerFloor keeps a small machine from resolving a large config nearly
+// one host at a time. An "ssh -G" spends most of its life starting up and
+// parsing, not computing, so more of them than cores is the point.
+const resolveWorkerFloor = 8
+
+// resolveWorkers returns how many ssh processes to run at once for n aliases.
+//
+// The work is one short process per alias, so the wall clock is however long
+// they take divided by however many run at once. Sizing the pool to the machine
+// rather than fixing it is what keeps a large config from being resolved a
+// handful at a time.
+func resolveWorkers(n int) int {
+	workers := runtime.NumCPU() * 4
+	if workers < resolveWorkerFloor {
+		workers = resolveWorkerFloor
+	}
+	if workers > resolveWorkerCap {
+		workers = resolveWorkerCap
+	}
+	if n < workers {
+		workers = n
+	}
+	return workers
+}
+
+// ResolveTimeout bounds one "ssh -G".
+//
+// Applying a config is local work that takes a few tens of milliseconds, but a
+// config can make it reach the network: a Match exec block runs its command
+// every time ssh reads the config, and CanonicalizeHostname adds a lookup of
+// its own. A name that does not resolve then stalls for the resolver's own
+// timeout, which is five seconds on a stock glibc, and listing a whole config
+// pays that for every such host.
+//
+// A host that does not answer in this long is reported as unresolved, which the
+// listing already renders as "-". These settings are a decoration on a list of
+// names: sshfs runs its own ssh and resolves the host for itself regardless, so
+// a missing line here costs nothing but the display.
+const ResolveTimeout = 2 * time.Second
+
+// resolveWaitDelay is how long a killed ssh is given to release its pipes
+// before they are closed for it, bounding the overshoot past ResolveTimeout.
+const resolveWaitDelay = 250 * time.Millisecond
 
 // maxIncludeDepth matches the nesting limit OpenSSH enforces on Include.
 const maxIncludeDepth = 16
@@ -297,7 +347,17 @@ func Resolve(ctx context.Context, alias string) (*Host, error) {
 		return nil, ErrInvalidAlias
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, ResolveTimeout)
+	defer cancel()
+
 	cmd := exec.CommandContext(ctx, "ssh", "-G", alias)
+	// Killing ssh is not on its own enough to end the read. A Match exec block
+	// runs its command through a shell, and that shell's own children inherit
+	// the pipe Output reads from, so an orphaned lookup holds the pipe open and
+	// Wait sits on it until the grandchild finishes by itself: exactly the wait
+	// the timeout above exists to cut short. WaitDelay closes the pipes shortly
+	// after the kill, which is what makes that timeout the bound it looks like.
+	cmd.WaitDelay = resolveWaitDelay
 	out, err := cmd.Output()
 	if err != nil {
 		var exit *exec.ExitError
@@ -322,10 +382,7 @@ func ResolveAll(ctx context.Context, aliases []string) map[string]*Host {
 		work    = make(chan string)
 	)
 
-	workers := resolveWorkers
-	if len(aliases) < workers {
-		workers = len(aliases)
-	}
+	workers := resolveWorkers(len(aliases))
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {

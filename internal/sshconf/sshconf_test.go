@@ -1,10 +1,13 @@
 package sshconf
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
+	"time"
 )
 
 func TestTokenise(t *testing.T) {
@@ -325,4 +328,98 @@ func writeTree(t *testing.T, files map[string]string) string {
 		}
 	}
 	return dir
+}
+
+func TestResolveWorkers(t *testing.T) {
+	cap := resolveWorkers(1 << 20)
+	if cap > resolveWorkerCap {
+		t.Errorf("resolveWorkers(large) = %d, want at most %d", cap, resolveWorkerCap)
+	}
+	if cap < resolveWorkerFloor {
+		t.Errorf("resolveWorkers(large) = %d, want at least %d", cap, resolveWorkerFloor)
+	}
+
+	// Never more workers than there is work for them to do, so a one host
+	// config starts one process rather than a machine's worth of them.
+	for _, n := range []int{0, 1, 2, 5} {
+		if got := resolveWorkers(n); got != n {
+			t.Errorf("resolveWorkers(%d) = %d, want %d", n, got, n)
+		}
+	}
+
+	// More than one process per core: an "ssh -G" is mostly startup and
+	// parsing, so the cores are not what is being shared out.
+	if runtime.NumCPU()*4 <= resolveWorkerCap && cap <= runtime.NumCPU() {
+		t.Errorf("resolveWorkers(large) = %d, want more than NumCPU (%d)", cap, runtime.NumCPU())
+	}
+}
+
+// stubSSH puts a fake ssh on PATH that sleeps for the given duration, so the
+// timeout can be exercised without running the real thing or touching a
+// network.
+func stubSSH(t *testing.T, sleep string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("stub relies on a shell script")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\nsleep " + sleep + "\necho 'hostname stub.example'\n"
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Prepended rather than replacing PATH, so the stub shadows ssh while the
+	// script can still find the shell utilities it runs.
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// A host that never answers must not hold the whole listing up. A config whose
+// Match exec runs a name lookup reaches the resolver on every alias, and a name
+// that does not resolve stalls there for seconds.
+func TestResolveGivesUpOnAStalledSSH(t *testing.T) {
+	stubSSH(t, "30")
+
+	start := time.Now()
+	_, err := Resolve(t.Context(), "wedged")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("Resolve() = nil error, want a timeout")
+	}
+	if elapsed > ResolveTimeout*2 {
+		t.Errorf("Resolve() took %v, want it abandoned near %v", elapsed, ResolveTimeout)
+	}
+}
+
+// The bound is on one host, so a whole config of stalled hosts still finishes.
+func TestResolveAllFinishesWhenEveryHostStalls(t *testing.T) {
+	stubSSH(t, "30")
+
+	aliases := make([]string, 20)
+	for i := range aliases {
+		aliases[i] = fmt.Sprintf("wedged%02d", i)
+	}
+
+	start := time.Now()
+	got := ResolveAll(t.Context(), aliases)
+	elapsed := time.Since(start)
+
+	if len(got) != 0 {
+		t.Errorf("ResolveAll() resolved %d hosts, want none", len(got))
+	}
+	if elapsed > ResolveTimeout*3 {
+		t.Errorf("ResolveAll() took %v, want it bounded near %v", elapsed, ResolveTimeout)
+	}
+}
+
+// A host that answers inside the bound is still resolved normally.
+func TestResolveSucceedsInsideTheTimeout(t *testing.T) {
+	stubSSH(t, "0")
+
+	host, err := Resolve(t.Context(), "quick")
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if host.HostName != "stub.example" {
+		t.Errorf("HostName = %q, want %q", host.HostName, "stub.example")
+	}
 }
