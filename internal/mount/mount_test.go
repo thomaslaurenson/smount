@@ -839,3 +839,51 @@ func TestUnmountPassesTheForceFlagToTheTool(t *testing.T) {
 		t.Errorf("tool ran with %v, want %v", got, want)
 	}
 }
+
+// Describe is what a message reads back, so the colon that Source keeps for
+// sshfs has to be gone: "mounting web01:" runs a sentence into its own
+// punctuation.
+func TestDescribe(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		host string
+		path string
+		want string
+	}{
+		{name: "remote home directory", host: "web01", want: "web01"},
+		{name: "a remote path", host: "web01", path: "/var/log", want: "web01:/var/log"},
+		{name: "the remote root", host: "web01", path: "/", want: "web01:/"},
+		{name: "a user in the host", host: "deploy@web01", path: "/srv", want: "deploy@web01:/srv"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Both types describe a source, and both have to agree: one names
+			// what is about to be mounted, the other what already is.
+			spec := Spec{Host: tc.host, Path: tc.path}
+			if got := spec.Describe(); got != tc.want {
+				t.Errorf("Spec.Describe() = %q, want %q", got, tc.want)
+			}
+			mnt := Mount{Host: tc.host, Path: tc.path}
+			if got := mnt.Describe(); got != tc.want {
+				t.Errorf("Mount.Describe() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Source keeps the trailing colon that asks sshfs for the remote home
+// directory, which is the difference Describe exists to hide.
+func TestDescribeDiffersFromSource(t *testing.T) {
+	t.Parallel()
+	spec := Spec{Host: "web01"}
+
+	if got := spec.Source(); got != "web01:" {
+		t.Errorf("Source() = %q, want the colon sshfs needs", got)
+	}
+	if got := spec.Describe(); got != "web01" {
+		t.Errorf("Describe() = %q, want the colon dropped", got)
+	}
+}
