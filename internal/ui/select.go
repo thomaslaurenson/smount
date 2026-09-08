@@ -65,7 +65,7 @@ func (u *UI) Select(ctx context.Context, title string, items []Item) (int, error
 		items: items,
 		out:   u.out,
 	}
-	s.measure(u.fd)
+	s.measure(u.size)
 	s.refilter()
 	defer s.clear()
 
@@ -245,18 +245,13 @@ type selector struct {
 	out     io.Writer
 }
 
-// measure reads the terminal size, falling back to a conservative default when
-// it cannot be determined, such as when stderr is a pipe.
-func (s *selector) measure(fd int) {
-	width, height, err := term.GetSize(fd)
-	if err != nil || width <= 0 {
-		width, height = 80, 24
-	}
-	s.width = width
+// measure fits the list to the terminal geometry it was handed.
+func (s *selector) measure(size Size) {
+	s.width = size.Width
 	s.visible = maxVisible
 	// Three lines of chrome plus one spare, so the list never pushes its own
 	// title off the top of a short window.
-	if room := height - 4; room < s.visible {
+	if room := size.Height - 4; room < s.visible {
 		s.visible = room
 	}
 	if s.visible < 1 {

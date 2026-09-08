@@ -66,13 +66,13 @@ type App struct {
 // The streams are parameters rather than the process ones so that a test can
 // build the same tree this binary does and read back what it wrote.
 //
-// Whether smount may prompt is settled here, once, and handed to the UI.
-// os.Stderr is asked directly because the question is about the process: a
-// prompt is drawn on the real error stream or not at all, whatever errw is
-// wrapped in.
+// Whether smount may prompt, and how much room it has to draw in, are settled
+// here, once, and handed to the UI. os.Stderr is asked directly because both
+// questions are about the process: a prompt is drawn on the real error stream
+// or not at all, whatever errw is wrapped in.
 func NewRootCmd(home string, in *os.File, out, errw io.Writer) *cobra.Command {
 	a := &App{
-		ui:   ui.New(in, errw, ui.IsTerminal(in, os.Stderr)),
+		ui:   ui.New(in, errw, ui.IsTerminal(in, os.Stderr), ui.TerminalSize(os.Stderr)),
 		home: tilde.Home(home),
 	}
 	opts := &mountOptions{}

@@ -308,3 +308,35 @@ func TestStripANSI(t *testing.T) {
 		})
 	}
 }
+
+func TestMeasureFitsTheList(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		size        Size
+		wantWidth   int
+		wantVisible int
+	}{
+		{name: "a roomy window caps at maxVisible", size: Size{Width: 80, Height: 24}, wantWidth: 80, wantVisible: maxVisible},
+		{name: "a short window leaves room for the chrome", size: Size{Width: 80, Height: 8}, wantWidth: 80, wantVisible: 4},
+		// A window with no room left still has to draw one row, or there is
+		// nothing to put the cursor on.
+		{name: "a window with no room still shows one row", size: Size{Width: 40, Height: 4}, wantWidth: 40, wantVisible: 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := &selector{}
+
+			s.measure(tc.size)
+
+			if s.width != tc.wantWidth {
+				t.Errorf("width = %d, want %d", s.width, tc.wantWidth)
+			}
+			if s.visible != tc.wantVisible {
+				t.Errorf("visible = %d, want %d", s.visible, tc.wantVisible)
+			}
+		})
+	}
+}

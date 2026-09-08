@@ -27,7 +27,7 @@ func newTestUI(t *testing.T, in string) (*UI, *bytes.Buffer) {
 	t.Cleanup(func() { f.Close() })
 
 	buf := &bytes.Buffer{}
-	return New(f, buf, true), buf
+	return New(f, buf, true, TerminalSize(f)), buf
 }
 
 func TestConfirm(t *testing.T) {
@@ -222,5 +222,43 @@ func TestMessagePrefixes(t *testing.T) {
 				t.Errorf("output = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestTerminalSizeFallsBackWithoutATerminal(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "not-a-terminal")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("writing the file: %v", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("opening the file: %v", err)
+	}
+	t.Cleanup(func() { f.Close() })
+
+	got := TerminalSize(f)
+
+	if want := (Size{Width: defaultWidth, Height: defaultHeight}); got != want {
+		t.Errorf("TerminalSize() = %+v, want %+v", got, want)
+	}
+}
+
+func TestNewFillsInAnUnusableSize(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "answers")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("writing answers: %v", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("opening answers: %v", err)
+	}
+	t.Cleanup(func() { f.Close() })
+
+	u := New(f, &bytes.Buffer{}, true, Size{})
+
+	if want := (Size{Width: defaultWidth, Height: defaultHeight}); u.size != want {
+		t.Errorf("size = %+v, want %+v", u.size, want)
 	}
 }

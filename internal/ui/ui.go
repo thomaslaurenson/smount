@@ -44,6 +44,9 @@ type UI struct {
 	// mode. It is read only when the UI is interactive.
 	fd int
 
+	// size is the terminal geometry to draw within, measured once in cmd.
+	size Size
+
 	interactive bool
 }
 
@@ -52,14 +55,15 @@ type UI struct {
 // in is an *os.File rather than an io.Reader because the filterable list puts
 // the terminal into raw mode, which needs a descriptor rather than a stream.
 //
-// interactive is decided by the caller. Whether a stream is a terminal is a
-// fact about the process, so it is settled once in cmd and handed down, rather
-// than asked again here.
-func New(in *os.File, out io.Writer, interactive bool) *UI {
+// interactive and size are decided by the caller. Both are facts about the
+// process, so they are settled once in cmd and handed down, rather than asked
+// again here.
+func New(in *os.File, out io.Writer, interactive bool, size Size) *UI {
 	return &UI{
 		in:          bufio.NewReader(in),
 		out:         out,
 		fd:          int(in.Fd()),
+		size:        size.orDefault(),
 		interactive: interactive,
 	}
 }
@@ -68,6 +72,47 @@ func New(in *os.File, out io.Writer, interactive bool) *UI {
 // somewhere to read the answer from, and somewhere to draw the question.
 func IsTerminal(in, out *os.File) bool {
 	return term.IsTerminal(int(in.Fd())) && term.IsTerminal(int(out.Fd()))
+}
+
+// Default terminal geometry, used for a dimension that cannot be measured.
+const (
+	defaultWidth  = 80
+	defaultHeight = 24
+)
+
+// Size is the terminal geometry that smount lays its output out within.
+type Size struct {
+	Width  int
+	Height int
+}
+
+// TerminalSize returns the geometry of f, falling back to a conservative
+// default for anything it cannot measure, such as when f is a pipe.
+//
+// Ask this of the stream smount draws on rather than the one it reads answers
+// from. The two are normally the same terminal, but only the drawing end
+// decides how much room a line has.
+func TerminalSize(f *os.File) Size {
+	width, height, err := term.GetSize(int(f.Fd()))
+	if err != nil {
+		return Size{}.orDefault()
+	}
+	return Size{Width: width, Height: height}.orDefault()
+}
+
+// orDefault fills in a dimension that is missing or nonsensical, so that a UI
+// always has room to lay something out in.
+//
+// The zero Size is what a caller building one by hand gets, and a width of
+// zero would clip every line away to nothing rather than failing visibly.
+func (s Size) orDefault() Size {
+	if s.Width <= 0 {
+		s.Width = defaultWidth
+	}
+	if s.Height <= 0 {
+		s.Height = defaultHeight
+	}
+	return s
 }
 
 // Interactive reports whether smount is able to prompt.
