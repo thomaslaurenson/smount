@@ -570,3 +570,84 @@ func TestProbeAnswersForALiveDirectory(t *testing.T) {
 		t.Errorf("probe() on a plain directory = %v, want %v", got, StateOK)
 	}
 }
+
+// stubUnmountTool puts a fake fusermount3 on PATH, so the unmount path can be
+// exercised without a real FUSE mount to detach.
+//
+// The stub fails when told to, so a test can tell a refused unmount from a
+// successful one.
+//
+// PATH is prepended rather than replaced: the stub is a shell script and still
+// needs the utilities it runs.
+func stubUnmountTool(t *testing.T, fail bool) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("stub relies on a shell script")
+	}
+
+	dir := t.TempDir()
+	script := "#!/bin/sh\n"
+	if fail {
+		script += "echo 'fusermount3: entry for /x not found in /etc/mtab' >&2\nexit 1\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fusermount3"), []byte(script), 0o755); err != nil {
+		t.Fatalf("writing stub: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// A mount point smount derived is its own to tidy away once it is detached.
+func TestUnmountRemovesADerivedMountPoint(t *testing.T) {
+	stubUnmountTool(t, false)
+
+	base := t.TempDir()
+	target := filepath.Join(base, "web01")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatalf("creating mount point: %v", err)
+	}
+
+	if err := Unmount(t.Context(), target, base, false); err != nil {
+		t.Fatalf("Unmount() error = %v", err)
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Unmount() left the derived mount point behind, stat err = %v", err)
+	}
+}
+
+// A mount point named with --at belongs to whoever made it, so detaching it
+// must not delete it.
+func TestUnmountKeepsAMountPointItDoesNotOwn(t *testing.T) {
+	stubUnmountTool(t, false)
+
+	target := t.TempDir()
+	if err := Unmount(t.Context(), target, t.TempDir(), false); err != nil {
+		t.Fatalf("Unmount() error = %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("Unmount() removed a mount point it does not own: %v", err)
+	}
+}
+
+// Nothing is still mounted when the tool refuses, so the directory has to stay:
+// removing it here would delete the mount point out from under a live mount.
+func TestUnmountKeepsTheDirectoryWhenTheToolFails(t *testing.T) {
+	stubUnmountTool(t, true)
+
+	base := t.TempDir()
+	target := filepath.Join(base, "web01")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatalf("creating mount point: %v", err)
+	}
+
+	err := Unmount(t.Context(), target, base, false)
+	if err == nil {
+		t.Fatal("Unmount() error = nil, want the tool's refusal")
+	}
+	// The tool says why, and that reason is more use than the exit status.
+	if !strings.Contains(err.Error(), "not found in /etc/mtab") {
+		t.Errorf("Unmount() error = %v, want it to carry what the tool said", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("Unmount() removed the mount point after a failed unmount: %v", err)
+	}
+}
