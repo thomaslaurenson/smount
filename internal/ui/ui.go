@@ -47,6 +47,9 @@ type UI struct {
 	// size is the terminal geometry to draw within, measured once in cmd.
 	size Size
 
+	// palette is how, and whether, this UI's stream may be styled.
+	palette Palette
+
 	interactive bool
 }
 
@@ -55,15 +58,16 @@ type UI struct {
 // in is an *os.File rather than an io.Reader because the filterable list puts
 // the terminal into raw mode, which needs a descriptor rather than a stream.
 //
-// interactive and size are decided by the caller. Both are facts about the
-// process, so they are settled once in cmd and handed down, rather than asked
-// again here.
-func New(in *os.File, out io.Writer, interactive bool, size Size) *UI {
+// interactive, size and palette are decided by the caller. All three are facts
+// about the process, so they are settled once in cmd and handed down, rather
+// than asked again here.
+func New(in *os.File, out io.Writer, interactive bool, size Size, palette Palette) *UI {
 	return &UI{
 		in:          bufio.NewReader(in),
 		out:         out,
 		fd:          int(in.Fd()),
 		size:        size.orDefault(),
+		palette:     palette,
 		interactive: interactive,
 	}
 }
@@ -113,6 +117,80 @@ func (s Size) orDefault() Size {
 		s.Height = defaultHeight
 	}
 	return s
+}
+
+// ColourMode is when smount may write ANSI styling, as --color selects it.
+type ColourMode string
+
+// The values --color accepts.
+const (
+	ColourAuto   ColourMode = "auto"
+	ColourAlways ColourMode = "always"
+	ColourNever  ColourMode = "never"
+)
+
+// ErrColourMode is reported for a --color value that names no mode.
+var ErrColourMode = errors.New("must be auto, always or never")
+
+// ParseColourMode reads the value given to --color.
+func ParseColourMode(s string) (ColourMode, error) {
+	switch mode := ColourMode(s); mode {
+	case ColourAuto, ColourAlways, ColourNever:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("%q: %w", s, ErrColourMode)
+	}
+}
+
+// ResolveColour reports whether ANSI styling may be written to f.
+//
+// noColour says whether NO_COLOR is set, read in cmd because the environment
+// belongs to the process rather than to this package.
+//
+// Only auto honours it. A mode the user typed is a decision about this run,
+// and an environment variable set once in a shell profile should not overrule
+// what was just asked for on the command line.
+func ResolveColour(mode ColourMode, noColour bool, f *os.File) bool {
+	switch mode {
+	case ColourAlways:
+		return true
+	case ColourNever:
+		return false
+	default:
+		return !noColour && term.IsTerminal(int(f.Fd()))
+	}
+}
+
+// Palette renders text with ANSI styling, or plainly where colour is unwanted.
+//
+// The styles are deliberately muted. smount's output is read alongside
+// whatever ssh and sshfs print, so a loud palette would make the decoration
+// the thing the eye lands on rather than the host and path being described.
+//
+// The zero Palette writes nothing, which is the right answer for a stream
+// nothing has said can show styling.
+type Palette struct {
+	enabled bool
+}
+
+// NewPalette builds a palette that styles text only when enabled.
+func NewPalette(enabled bool) Palette {
+	return Palette{enabled: enabled}
+}
+
+// Dim renders secondary text, such as the detail beside a menu label.
+func (p Palette) Dim(s string) string {
+	return p.wrap("2", s)
+}
+
+// wrap styles s, leaving it alone when colour is off or there is nothing to
+// style. An empty string is returned bare so that a padded column never gains
+// escape bytes around nothing.
+func (p Palette) wrap(code, s string) string {
+	if !p.enabled || s == "" {
+		return s
+	}
+	return "\x1b[" + code + "m" + s + "\x1b[0m"
 }
 
 // Interactive reports whether smount is able to prompt.

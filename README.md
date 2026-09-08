@@ -75,6 +75,9 @@ Completion offers favourite names, host aliases and active mount names.
 | `--yes`, `-y` | Skip the confirmation prompt | `false` |
 | `--dry-run` | Print the sshfs command instead of running it | `false` |
 | `--no-save` | Do not offer to save the mount as a favourite | `false` |
+| `--color` | When to colour output: `auto`, `always` or `never` | `auto` |
+
+`--color` is available on every subcommand, and `auto` styles output only when the stream is a terminal and `NO_COLOR` is unset.
 
 `smount umount` takes `--all` to unmount everything, and `--force` to lazily unmount a dropped connection. `smount hosts` takes `--quiet` to print host names without resolving them.
 

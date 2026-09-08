@@ -61,9 +61,10 @@ func (u *UI) Select(ctx context.Context, title string, items []Item) (int, error
 	defer func() { _ = term.Restore(u.fd, state) }()
 
 	s := &selector{
-		title: title,
-		items: items,
-		out:   u.out,
+		title:   title,
+		items:   items,
+		out:     u.out,
+		palette: u.palette,
 	}
 	s.measure(u.size)
 	s.refilter()
@@ -243,6 +244,7 @@ type selector struct {
 	width   int
 	visible int
 	out     io.Writer
+	palette Palette
 }
 
 // measure fits the list to the terminal geometry it was handed.
@@ -356,7 +358,7 @@ func (s *selector) lines() []string {
 		if i == s.cursor {
 			marker = "> "
 		}
-		out = append(out, marker+row(item, labelWidth, s.width-len(marker)))
+		out = append(out, marker+row(s.palette, item, labelWidth, s.width-len(marker)))
 	}
 
 	if len(s.matches) == 0 {
@@ -375,7 +377,7 @@ func (s *selector) lines() []string {
 
 // row renders one item, giving the label a fixed column so that details line up
 // and clipping each part to the space actually available.
-func row(item Item, labelWidth, budget int) string {
+func row(p Palette, item Item, labelWidth, budget int) string {
 	if budget < 1 {
 		budget = 1
 	}
@@ -396,7 +398,7 @@ func row(item Item, labelWidth, budget int) string {
 	}
 	// Dim is applied after clipping, so the escape bytes never count towards
 	// the width and the column cannot drift.
-	return label + "  \x1b[2m" + truncate(item.Detail, rest) + "\x1b[0m"
+	return label + "  " + p.Dim(truncate(item.Detail, rest))
 }
 
 // width returns how many columns s occupies.

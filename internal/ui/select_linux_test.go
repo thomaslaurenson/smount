@@ -82,7 +82,7 @@ func runSelect(t *testing.T, ctx context.Context, items []Item, keys ...string) 
 	master, slave := newPTY(t)
 
 	var out strings.Builder
-	u := New(slave, &out, true, TerminalSize(slave))
+	u := New(slave, &out, true, TerminalSize(slave), NewPalette(true))
 
 	done := make(chan selection, 1)
 	go func() {
@@ -233,7 +233,7 @@ func TestSelectReturnsWhenTheContextIsCancelled(t *testing.T) {
 
 func TestSelectRefusesWithNothingToChooseFrom(t *testing.T) {
 	_, slave := newPTY(t)
-	u := New(slave, &strings.Builder{}, true, TerminalSize(slave))
+	u := New(slave, &strings.Builder{}, true, TerminalSize(slave), NewPalette(true))
 
 	if _, err := u.Select(t.Context(), "Pick one", nil); !errors.Is(err, ErrNoItems) {
 		t.Errorf("Select() error = %v, want %v", err, ErrNoItems)
@@ -242,7 +242,7 @@ func TestSelectRefusesWithNothingToChooseFrom(t *testing.T) {
 
 func TestSelectRefusesWithoutATerminal(t *testing.T) {
 	_, slave := newPTY(t)
-	u := New(slave, &strings.Builder{}, false, TerminalSize(slave))
+	u := New(slave, &strings.Builder{}, false, TerminalSize(slave), NewPalette(true))
 
 	if _, err := u.Select(t.Context(), "Pick one", threeItems); !errors.Is(err, ErrNotTerminal) {
 		t.Errorf("Select() error = %v, want %v", err, ErrNotTerminal)

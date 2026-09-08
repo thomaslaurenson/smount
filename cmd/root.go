@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -54,6 +55,38 @@ var ErrCancelled = ui.ErrCancelled
 type App struct {
 	ui   *ui.UI
 	home tilde.Home
+
+	// in and errw are held so that the UI can be built once --color has been
+	// read, which cobra only does when a command actually runs.
+	in   *os.File
+	errw io.Writer
+
+	// colour is the --color flag, as typed.
+	colour string
+}
+
+// buildUI settles what cmd knows about the streams and hands it to the UI.
+//
+// This runs from the root's PersistentPreRunE rather than from NewRootCmd
+// because --color is one of its inputs, and a flag has no value until cobra
+// has parsed the command line.
+//
+// os.Stderr is asked directly because every question here is about the
+// process: a prompt is drawn on the real error stream or not at all, whatever
+// errw is wrapped in.
+func (a *App) buildUI() error {
+	mode, err := ui.ParseColourMode(a.colour)
+	if err != nil {
+		return fmt.Errorf("--color %w", err)
+	}
+	a.ui = ui.New(
+		a.in,
+		a.errw,
+		ui.IsTerminal(a.in, os.Stderr),
+		ui.TerminalSize(os.Stderr),
+		ui.NewPalette(ui.ResolveColour(mode, os.Getenv("NO_COLOR") != "", os.Stderr)),
+	)
+	return nil
 }
 
 // NewRootCmd builds the command tree, reading answers from in and writing
@@ -66,14 +99,13 @@ type App struct {
 // The streams are parameters rather than the process ones so that a test can
 // build the same tree this binary does and read back what it wrote.
 //
-// Whether smount may prompt, and how much room it has to draw in, are settled
-// here, once, and handed to the UI. os.Stderr is asked directly because both
-// questions are about the process: a prompt is drawn on the real error stream
-// or not at all, whatever errw is wrapped in.
+// What smount knows about the terminal, including whether it may prompt, is
+// settled once in buildUI and handed to the UI from there.
 func NewRootCmd(home string, in *os.File, out, errw io.Writer) *cobra.Command {
 	a := &App{
-		ui:   ui.New(in, errw, ui.IsTerminal(in, os.Stderr), ui.TerminalSize(os.Stderr)),
 		home: tilde.Home(home),
+		in:   in,
+		errw: errw,
 	}
 	opts := &mountOptions{}
 
@@ -86,6 +118,9 @@ func NewRootCmd(home string, in *os.File, out, errw io.Writer) *cobra.Command {
 		SilenceUsage:      true,
 		Version:           Version,
 		ValidArgsFunction: a.completeTargets,
+		PersistentPreRunE: func(*cobra.Command, []string) error {
+			return a.buildUI()
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runMount(cmd, opts, args)
 		},
@@ -93,6 +128,8 @@ func NewRootCmd(home string, in *os.File, out, errw io.Writer) *cobra.Command {
 	root.SetIn(in)
 	root.SetOut(out)
 	root.SetErr(errw)
+	root.PersistentFlags().StringVar(&a.colour, "color", string(ui.ColourAuto),
+		"when to colour output: auto, always or never")
 	opts.register(root)
 
 	root.AddCommand(

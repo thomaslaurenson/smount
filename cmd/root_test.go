@@ -166,3 +166,17 @@ func TestRootSummaryStaysOffStdout(t *testing.T) {
 		t.Errorf("stdout = %q, want the sshfs command line and nothing else", stdout)
 	}
 }
+
+func TestRootRejectsAnUnknownColourMode(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	_, _, err := run(t, home, "ls", "--color", "beige")
+
+	if err == nil {
+		t.Fatal("--color beige was accepted, want an error")
+	}
+	if !strings.Contains(err.Error(), "--color") {
+		t.Errorf("error = %v, want it to name the flag", err)
+	}
+}

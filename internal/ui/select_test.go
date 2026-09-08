@@ -237,8 +237,9 @@ func TestRowAlignsANonASCIILabel(t *testing.T) {
 	const labelWidth = 8
 
 	const detail = "10.0.0.1"
-	ascii := row(Item{Label: "webxx", Detail: detail}, labelWidth, 40)
-	unicode := row(Item{Label: "w\u00e9bxx", Detail: detail}, labelWidth, 40)
+	p := NewPalette(true)
+	ascii := row(p, Item{Label: "webxx", Detail: detail}, labelWidth, 40)
+	unicode := row(p, Item{Label: "w\u00e9bxx", Detail: detail}, labelWidth, 40)
 
 	want := detailColumn(t, ascii, detail)
 	if got := detailColumn(t, unicode, detail); got != want {
@@ -338,5 +339,22 @@ func TestMeasureFitsTheList(t *testing.T) {
 				t.Errorf("visible = %d, want %d", s.visible, tc.wantVisible)
 			}
 		})
+	}
+}
+
+// TestRowLeavesTheDetailPlainWithoutColour is the guard for a piped or
+// NO_COLOR run: the detail is the only styled part of a row, so it is where a
+// palette that was ignored would show up.
+func TestRowLeavesTheDetailPlainWithoutColour(t *testing.T) {
+	t.Parallel()
+	item := Item{Label: "web01", Detail: "10.0.0.1"}
+
+	got := row(NewPalette(false), item, 8, 40)
+
+	if strings.Contains(got, "\x1b") {
+		t.Errorf("row() = %q, want no escape sequences", got)
+	}
+	if want := "web01     10.0.0.1"; got != want {
+		t.Errorf("row() = %q, want %q", got, want)
 	}
 }
