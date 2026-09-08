@@ -46,22 +46,21 @@ sudo apt install sshfs
 Run `smount` with no arguments to pick a favourite or a host from a filterable list, or name a target directly:
 
 ```sh
-smount                       # choose a favourite or host interactively
-smount web01                 # mount the remote home directory
-smount web01:/var/log        # mount one remote path
-smount logs                  # mount the favourite named "logs"
+smount                 # choose a host or favourite interactively
+smount web01           # mount the remote home directory
+smount web01:/var/www  # mount one remote path
+smount web01_www       # mount the favourite named "web01_www"
 
-smount ls                    # list active mounts
-smount umount [name]         # unmount by name, or choose interactively
-smount hosts                 # list the SSH hosts smount can see
-smount check                 # check the local environment
-smount version               # print the version
+smount umount            # unmount interactively
+smount umount web01_www  # unmount by name
+smount umount --all      # unmount all
 
-smount fav list              # list saved favourites
-smount fav add logs web01:/var/log
-smount fav rm logs
+smount ls           # list active mounts
+smount hosts        # list the SSH hosts smount can see
+smount check        # check the local environment
+smount version      # print the version
 
-smount completion bash > /etc/bash_completion.d/smount
+smount completion bash | sudo tee /etc/bash_completion.d/smount
 ```
 
 Completion offers favourite names, host aliases and active mount names.
@@ -79,12 +78,7 @@ Completion offers favourite names, host aliases and active mount names.
 
 `smount umount` takes `--all` to unmount everything, and `--force` to lazily unmount a dropped connection. `smount hosts` takes `--quiet` to print host names without resolving them.
 
-`smount fav add` takes `--at`, `--opt` and `--ro`, which mean the same as above but are saved with the favourite rather than applied to one mount:
-
-```sh
-smount fav add logs web01:/var/log --ro -o compression=yes
-smount fav add scratch web01:/tmp --at ~/scratch
-```
+A favourite is saved from a mount rather than declared: once an ad hoc mount succeeds, smount offers to keep it, and the `--at`, `--opt` and `--ro` that mount used are saved with it. Favourites can also be written straight into `favourites.json`.
 
 ## Mount points
 

@@ -145,17 +145,6 @@ func (s *Store) Add(f Favourite) error {
 	return nil
 }
 
-// Remove deletes the favourite with the given name.
-func (s *Store) Remove(name string) error {
-	for i := range s.Favourites {
-		if s.Favourites[i].Name == name {
-			s.Favourites = slices.Delete(s.Favourites, i, i+1)
-			return nil
-		}
-	}
-	return fmt.Errorf("%q: %w", name, ErrNotFound)
-}
-
 // ValidName reports whether name is usable as a favourite name.
 //
 // A favourite name is accepted as a bare argument to smount, so it has to be
@@ -183,8 +172,9 @@ func ValidName(name string) error {
 //
 // A favourite name is one the user invents, and it becomes a directory name
 // under the mount base as well as a label in a menu that is measured in
-// characters. Slug already produces nothing else, so this only constrains a
-// name typed straight into "fav add".
+// characters. Every name reaching Add has been through Slug, which produces
+// nothing else, so this holds the store to its invariant rather than checking
+// an argument.
 //
 // Host aliases are deliberately not held to this. They come from a config file
 // smount only reads, and refusing one would hide a host ssh can reach.

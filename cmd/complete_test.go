@@ -26,46 +26,6 @@ func cmdWithContext(t *testing.T) *cobra.Command {
 	return cmd
 }
 
-// TestCompleteHostsOnlyCompletesTheTargetArgument is the guard for the argument
-// position. "fav add" takes a new name then a host, and offering host aliases
-// for the name slot proposes names for something that does not exist yet.
-func TestCompleteHostsOnlyCompletesTheTargetArgument(t *testing.T) {
-	t.Parallel()
-	a := fakeHome(t)
-
-	tests := []struct {
-		name       string
-		args       []string
-		toComplete string
-		want       []string
-	}{
-		{name: "name argument gets nothing", args: nil, want: nil},
-		{
-			name: "target argument gets the aliases",
-			args: []string{"myfav"},
-			want: []string{"db-prod", "web01"},
-		},
-		{
-			name: "target argument is filtered by prefix",
-			args: []string{"myfav"}, toComplete: "web",
-			want: []string{"web01"},
-		},
-		{name: "past the last argument gets nothing", args: []string{"myfav", "web01"}, want: nil},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, directive := a.completeHosts(cmdWithContext(t), tc.args, tc.toComplete)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("completeHosts(%v, %q) = %v, want %v", tc.args, tc.toComplete, got, tc.want)
-			}
-			if directive != cobra.ShellCompDirectiveNoFileComp {
-				t.Errorf("directive = %v, want NoFileComp", directive)
-			}
-		})
-	}
-}
-
 func TestCompleteTargets(t *testing.T) {
 	t.Parallel()
 	a := fakeHome(t)
@@ -101,34 +61,6 @@ func TestCompleteTargets(t *testing.T) {
 	}
 }
 
-func TestCompleteFavourites(t *testing.T) {
-	t.Parallel()
-	a := fakeHome(t)
-
-	tests := []struct {
-		name       string
-		args       []string
-		toComplete string
-		want       []string
-	}{
-		{name: "every favourite", want: []string{"backup", "logs"}},
-		{name: "filtered by prefix", toComplete: "l", want: []string{"logs"}},
-		{name: "only one name is taken", args: []string{"logs"}, want: nil},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, directive := a.completeFavourites(cmdWithContext(t), tc.args, tc.toComplete)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("completeFavourites(%v, %q) = %v, want %v", tc.args, tc.toComplete, got, tc.want)
-			}
-			if directive != cobra.ShellCompDirectiveNoFileComp {
-				t.Errorf("directive = %v, want NoFileComp", directive)
-			}
-		})
-	}
-}
-
 func TestCompleteMountsTakesOneArgument(t *testing.T) {
 	t.Parallel()
 
@@ -153,10 +85,8 @@ func TestCompletersNeverFallBackToFilenames(t *testing.T) {
 	a := &App{home: tilde.Home(t.TempDir())}
 
 	completers := map[string]func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective){
-		"completeTargets":    a.completeTargets,
-		"completeFavourites": a.completeFavourites,
-		"completeHosts":      a.completeHosts,
-		"completeMounts":     completeMounts,
+		"completeTargets": a.completeTargets,
+		"completeMounts":  completeMounts,
 	}
 
 	for name, complete := range completers {

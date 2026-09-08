@@ -115,7 +115,7 @@ func TestFavouriteDescribe(t *testing.T) {
 	}
 }
 
-func TestStoreAddAndRemove(t *testing.T) {
+func TestStoreAdd(t *testing.T) {
 	t.Parallel()
 	s := &Store{Version: Version}
 
@@ -135,13 +135,6 @@ func TestStoreAddAndRemove(t *testing.T) {
 	}
 	if fav.Host != "web01" {
 		t.Errorf("Get().Host = %q, want %q", fav.Host, "web01")
-	}
-
-	if err := s.Remove("logs"); err != nil {
-		t.Fatalf("Remove() error = %v", err)
-	}
-	if err := s.Remove("logs"); !errors.Is(err, ErrNotFound) {
-		t.Errorf("Remove() missing error = %v, want %v", err, ErrNotFound)
 	}
 }
 
