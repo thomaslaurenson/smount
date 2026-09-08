@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 - 2026-09-08
+
+### Removed
+
+- Remove the fav subcommand for listing, adding and deleting favourites
+
 ## 0.2.1 - 2026-09-08
 
 ### Changed
