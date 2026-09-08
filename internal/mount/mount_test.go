@@ -651,3 +651,78 @@ func TestUnmountKeepsTheDirectoryWhenTheToolFails(t *testing.T) {
 		t.Errorf("Unmount() removed the mount point after a failed unmount: %v", err)
 	}
 }
+
+// stubSSHFS puts a fake sshfs on PATH, so the mount path can be exercised
+// without a remote host to mount from.
+//
+// PATH is prepended rather than replaced: the stub is a shell script and still
+// needs the utilities it runs.
+func stubSSHFS(t *testing.T, fail bool) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("stub relies on a shell script")
+	}
+
+	dir := t.TempDir()
+	script := "#!/bin/sh\n"
+	if fail {
+		script += "echo 'read: Connection reset by peer' >&2\nexit 1\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sshfs"), []byte(script), 0o755); err != nil {
+		t.Fatalf("writing stub: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// A mount point this call made is worth removing when the mount fails, so a
+// refused mount does not litter the mount base with empty directories.
+func TestRunRemovesAMountPointItCreated(t *testing.T) {
+	stubSSHFS(t, true)
+
+	target := filepath.Join(t.TempDir(), "web01")
+	spec := Spec{Host: "web01", Target: target}
+
+	err := Run(t.Context(), spec, strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("Run() error = nil, want the failure sshfs reported")
+	}
+	// The message points at ssh, which is the only thing that can say why.
+	if !strings.Contains(err.Error(), "try 'ssh web01'") {
+		t.Errorf("Run() error = %v, want it to suggest ssh", err)
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Run() left behind the mount point it created, stat err = %v", err)
+	}
+}
+
+// An empty directory that was already there belongs to whoever made it, so a
+// failed mount must leave it where it found it.
+func TestRunKeepsAMountPointItDidNotCreate(t *testing.T) {
+	stubSSHFS(t, true)
+
+	target := t.TempDir()
+	spec := Spec{Host: "web01", Target: target}
+
+	if err := Run(t.Context(), spec, strings.NewReader(""), io.Discard, io.Discard); err == nil {
+		t.Fatal("Run() error = nil, want the failure sshfs reported")
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("Run() removed a mount point it did not create: %v", err)
+	}
+}
+
+// A mount that succeeds keeps its mount point, which is the directory the
+// filesystem is now attached to.
+func TestRunKeepsTheMountPointOnSuccess(t *testing.T) {
+	stubSSHFS(t, false)
+
+	target := filepath.Join(t.TempDir(), "web01")
+	spec := Spec{Host: "web01", Path: "/var/log", Target: target}
+
+	if err := Run(t.Context(), spec, strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("Run() removed the mount point after a successful mount: %v", err)
+	}
+}
