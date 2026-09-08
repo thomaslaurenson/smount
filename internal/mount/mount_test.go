@@ -574,19 +574,20 @@ func TestProbeAnswersForALiveDirectory(t *testing.T) {
 // stubUnmountTool puts a fake fusermount3 on PATH, so the unmount path can be
 // exercised without a real FUSE mount to detach.
 //
-// The stub fails when told to, so a test can tell a refused unmount from a
-// successful one.
+// It returns the file the stub writes its arguments to, one per line, and fails
+// when told to so that a test can tell a refused unmount from a successful one.
 //
 // PATH is prepended rather than replaced: the stub is a shell script and still
 // needs the utilities it runs.
-func stubUnmountTool(t *testing.T, fail bool) {
+func stubUnmountTool(t *testing.T, fail bool) (argsFile string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("stub relies on a shell script")
 	}
 
 	dir := t.TempDir()
-	script := "#!/bin/sh\n"
+	argsFile = filepath.Join(dir, "args")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argsFile + "\n"
 	if fail {
 		script += "echo 'fusermount3: entry for /x not found in /etc/mtab' >&2\nexit 1\n"
 	}
@@ -594,6 +595,7 @@ func stubUnmountTool(t *testing.T, fail bool) {
 		t.Fatalf("writing stub: %v", err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return argsFile
 }
 
 // A mount point smount derived is its own to tidy away once it is detached.
@@ -724,5 +726,116 @@ func TestRunKeepsTheMountPointOnSuccess(t *testing.T) {
 	}
 	if _, err := os.Stat(target); err != nil {
 		t.Errorf("Run() removed the mount point after a successful mount: %v", err)
+	}
+}
+
+// toolsOnPath replaces PATH with a directory holding only the named
+// executables, so which unmount tool is chosen can be driven by which ones
+// exist.
+//
+// PATH is replaced rather than prepended here, unlike the stubs that stand in
+// for a tool: the question these tests ask is which tools are absent, and a
+// real one further along the real PATH would answer it instead.
+func toolsOnPath(t *testing.T, names ...string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("stub relies on a shell script")
+	}
+
+	dir := t.TempDir()
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatalf("writing stub %s: %v", name, err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	return dir
+}
+
+func TestUnmountTool(t *testing.T) {
+	tests := []struct {
+		name      string
+		available []string
+		force     bool
+		wantTool  string
+		wantArgs  []string
+	}{
+		{
+			name:      "fuse3 is preferred where both are installed",
+			available: []string{"fusermount3", "fusermount", "umount"},
+			wantTool:  "fusermount3", wantArgs: []string{"-u"},
+		},
+		{
+			name:      "fuse2 is used where fuse3 is absent",
+			available: []string{"fusermount", "umount"},
+			wantTool:  "fusermount", wantArgs: []string{"-u"},
+		},
+		{
+			name:      "umount is the last resort",
+			available: []string{"umount"},
+			wantTool:  "umount", wantArgs: nil,
+		},
+		{
+			name:      "forcing a fuse unmount detaches it lazily",
+			available: []string{"fusermount3"},
+			force:     true,
+			wantTool:  "fusermount3", wantArgs: []string{"-uz"},
+		},
+		{
+			name:      "forcing a umount uses the flag this platform spells it with",
+			available: []string{"umount"},
+			force:     true,
+			wantTool:  "umount", wantArgs: []string{forceUnmountFlag()},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := toolsOnPath(t, tc.available...)
+
+			bin, args, err := UnmountTool(tc.force)
+			if err != nil {
+				t.Fatalf("UnmountTool(%v) error = %v", tc.force, err)
+			}
+			if want := filepath.Join(dir, tc.wantTool); bin != want {
+				t.Errorf("UnmountTool(%v) tool = %q, want %q", tc.force, bin, want)
+			}
+			if !reflect.DeepEqual(args, tc.wantArgs) {
+				t.Errorf("UnmountTool(%v) args = %v, want %v", tc.force, args, tc.wantArgs)
+			}
+		})
+	}
+}
+
+func TestUnmountToolWithNoneInstalled(t *testing.T) {
+	toolsOnPath(t)
+
+	if _, _, err := UnmountTool(false); !errors.Is(err, ErrNoUnmountTool) {
+		t.Errorf("UnmountTool() error = %v, want %v", err, ErrNoUnmountTool)
+	}
+}
+
+// The flags UnmountTool chooses are only useful if they reach the tool, so this
+// follows a forced unmount all the way to the arguments it was run with.
+func TestUnmountPassesTheForceFlagToTheTool(t *testing.T) {
+	argsFile := stubUnmountTool(t, false)
+
+	base := t.TempDir()
+	target := filepath.Join(base, "web01")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatalf("creating mount point: %v", err)
+	}
+
+	if err := Unmount(t.Context(), target, base, true); err != nil {
+		t.Fatalf("Unmount() error = %v", err)
+	}
+
+	recorded, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("reading recorded arguments: %v", err)
+	}
+	want := []string{"-uz", target}
+	if got := strings.Fields(string(recorded)); !reflect.DeepEqual(got, want) {
+		t.Errorf("tool ran with %v, want %v", got, want)
 	}
 }
