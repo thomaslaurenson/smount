@@ -56,6 +56,7 @@ smount umount web01_www  # unmount by name
 smount umount --all      # unmount all
 
 smount ls           # list active mounts
+smount ls --short   # list active mount names only
 smount hosts        # list the SSH hosts smount can see
 smount check        # check the local environment
 smount version      # print the version
@@ -79,7 +80,7 @@ Completion offers favourite names, host aliases and active mount names.
 
 `--color` is available on every subcommand, and `auto` styles output only when the stream is a terminal and `NO_COLOR` is unset.
 
-`smount umount` takes `--all` to unmount everything, and `--force` to lazily unmount a dropped connection. `smount hosts` takes `--quiet` to print host names without resolving them.
+`smount umount` takes `--all` to unmount everything, and `--force` to lazily unmount a dropped connection. `smount ls` and `smount hosts` both take `--short` (`-s`) to print bare names, one per line, for scripting.
 
 A favourite is saved from a mount rather than declared: once an ad hoc mount succeeds, smount offers to keep it, and the `--at`, `--opt` and `--ro` that mount used are saved with it. Favourites can also be written straight into `favourites.json`.
 

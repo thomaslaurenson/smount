@@ -26,6 +26,35 @@ func TestLs(t *testing.T) {
 	}
 }
 
+// TestLsShort covers both states of the mount table for the same reason TestLs
+// does. The header is what separates the two forms, so its absence is the
+// assertion whether or not this machine has a mount to list.
+func TestLsShort(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	stdout, stderr, err := run(t, home, "ls", "--short")
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if stdout == "" {
+		if !strings.Contains(stderr, "no active sshfs mounts") {
+			t.Errorf("stderr = %q, want the empty case noted on it", stderr)
+		}
+		return
+	}
+	if strings.Contains(stdout, "MOUNT POINT") {
+		t.Errorf("stdout = %q, want no table header", stdout)
+	}
+	// One bare name per line is the whole contract, so nothing on a line may
+	// need splitting to be used as an argument.
+	for _, line := range strings.Split(strings.TrimRight(stdout, "\n"), "\n") {
+		if strings.ContainsAny(line, " \t") {
+			t.Errorf("line %q carries more than a name", line)
+		}
+	}
+}
+
 func TestUmountWithNothingToChoose(t *testing.T) {
 	t.Parallel()
 	home := writeHome(t, "")

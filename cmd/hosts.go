@@ -11,7 +11,7 @@ import (
 )
 
 func (a *App) newHostsCmd() *cobra.Command {
-	var quiet bool
+	var short bool
 
 	cmd := &cobra.Command{
 		Use:   "hosts",
@@ -30,7 +30,7 @@ func (a *App) newHostsCmd() *cobra.Command {
 				return err
 			}
 
-			if quiet {
+			if short {
 				for _, alias := range aliases {
 					fmt.Fprintln(cmd.OutOrStdout(), alias)
 				}
@@ -55,6 +55,6 @@ func (a *App) newHostsCmd() *cobra.Command {
 			return w.Flush()
 		},
 	}
-	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "print host names only, without resolving them")
+	cmd.Flags().BoolVarP(&short, "short", "s", false, "print host names only, without resolving them")
 	return cmd
 }

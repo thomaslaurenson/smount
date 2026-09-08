@@ -15,7 +15,8 @@ func TestHosts(t *testing.T) {
 		wantHeader bool
 	}{
 		{name: "default lists hosts with a header", args: []string{"hosts"}, wantHeader: true},
-		{name: "--quiet lists names alone", args: []string{"hosts", "--quiet"}, wantHeader: false},
+		{name: "--short lists names alone", args: []string{"hosts", "--short"}, wantHeader: false},
+		{name: "-s is the same flag", args: []string{"hosts", "-s"}, wantHeader: false},
 	}
 
 	for _, tc := range tests {
