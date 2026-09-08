@@ -2,7 +2,6 @@
 package favourites
 
 import (
-	"bufio"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -146,17 +145,6 @@ func (s *Store) Add(f Favourite) error {
 	return nil
 }
 
-// Remove deletes the favourite with the given name.
-func (s *Store) Remove(name string) error {
-	for i := range s.Favourites {
-		if s.Favourites[i].Name == name {
-			s.Favourites = slices.Delete(s.Favourites, i, i+1)
-			return nil
-		}
-	}
-	return fmt.Errorf("%q: %w", name, ErrNotFound)
-}
-
 // ValidName reports whether name is usable as a favourite name.
 //
 // A favourite name is accepted as a bare argument to smount, so it has to be
@@ -184,8 +172,9 @@ func ValidName(name string) error {
 //
 // A favourite name is one the user invents, and it becomes a directory name
 // under the mount base as well as a label in a menu that is measured in
-// characters. Slug already produces nothing else, so this only constrains a
-// name typed straight into "fav add".
+// characters. Every name reaching Add has been through Slug, which produces
+// nothing else, so this holds the store to its invariant rather than checking
+// an argument.
 //
 // Host aliases are deliberately not held to this. They come from a config file
 // smount only reads, and refusing one would hide a host ssh can reach.
@@ -219,103 +208,19 @@ func Slug(text string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// UniqueName returns base, or base with a numeric suffix when base is taken.
-func (s *Store) UniqueName(base string) string {
-	return s.uniqueName(base, nil)
-}
-
-// uniqueName returns base, or base with a numeric suffix, skipping names the
-// store already holds and names claimed reports as belonging to something else.
-// A nil claimed considers the store alone.
+// UniqueName returns base, or base with a numeric suffix when the store already
+// holds base.
 //
 // The search always terminates: the suffix only produces names of the form
-// "base-2", "base-3" and so on, so claimed may reject base but cannot reject
-// every candidate after it.
-func (s *Store) uniqueName(base string, claimed func(string) bool) string {
-	taken := func(name string) bool {
-		return s.Has(name) || (claimed != nil && claimed(name))
-	}
-	if !taken(base) {
+// "base-2", "base-3" and so on, and the store holds finitely many of them.
+func (s *Store) UniqueName(base string) string {
+	if !s.Has(base) {
 		return base
 	}
 	for i := 2; ; i++ {
 		candidate := fmt.Sprintf("%s-%d", base, i)
-		if !taken(candidate) {
+		if !s.Has(candidate) {
 			return candidate
 		}
 	}
-}
-
-// LegacyPath returns the war10ck shell function's favourites file.
-func LegacyPath(home tilde.Home) string {
-	return filepath.Join(string(home), ".war10ck", ".sshfs_favorites")
-}
-
-// MigrateLegacy imports the war10ck shell function's favourites into s.
-//
-// It reports how many were added. The legacy file is left in place, so a
-// migration that picks the wrong names can simply be deleted and redone.
-//
-// The legacy format is one "host|path|label" record per line. A label is free
-// text, so it becomes a slug, and a path of "~" becomes the empty string that
-// smount uses for a remote home directory.
-//
-// claimed reports the names something other than the store already owns, which
-// for smount means its own subcommands. Such a name is suffixed rather than
-// skipped: a favourite named after a subcommand saves cleanly and can then
-// never be mounted, because "smount <name>" resolves the subcommand first.
-func MigrateLegacy(s *Store, path string, claimed func(string) bool) (int, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return 0, nil
-		}
-		return 0, err
-	}
-	defer file.Close()
-
-	added := 0
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		fields := strings.SplitN(line, "|", 3)
-		if len(fields) < 2 || fields[0] == "" {
-			continue
-		}
-
-		f := Favourite{Host: fields[0], Path: normaliseLegacyPath(fields[1])}
-		label := ""
-		if len(fields) == 3 {
-			label = fields[2]
-		}
-		name := Slug(label)
-		if name == "" {
-			name = Slug(f.Host)
-		}
-		if name == "" {
-			continue
-		}
-
-		f.Name = s.uniqueName(name, claimed)
-		if err := s.Add(f); err != nil {
-			continue
-		}
-		added++
-	}
-	if err := scanner.Err(); err != nil {
-		return added, err
-	}
-	return added, nil
-}
-
-// normaliseLegacyPath maps the shell function's "~" home marker onto the empty
-// string, which is how smount asks sshfs for the remote home directory.
-func normaliseLegacyPath(path string) string {
-	if path == "~" || path == "~/" {
-		return ""
-	}
-	return path
 }

@@ -31,8 +31,8 @@ settings live in ~/.smount.`
 // The set is read off the command tree rather than listed by hand, because a
 // hand-written list silently goes stale: it is the aliases that get forgotten,
 // and an alias resolves exactly like the name it stands for. Only top level
-// commands matter, since "smount rm" is not a command even though
-// "smount fav rm" is.
+// commands matter, since "smount bash" is not a command even though
+// "smount completion bash" is.
 func reservedNames(cmd *cobra.Command) map[string]bool {
 	names := make(map[string]bool)
 	for _, sub := range cmd.Root().Commands() {
@@ -99,7 +99,6 @@ func NewRootCmd(home string, in *os.File, out, errw io.Writer) *cobra.Command {
 		newLsCmd(a.home),
 		a.newUmountCmd(),
 		a.newHostsCmd(),
-		a.newFavCmd(),
 		a.newCheckCmd(),
 		newVersionCmd(),
 	)
