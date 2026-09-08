@@ -144,19 +144,3 @@ func TestFavIsMountedByName(t *testing.T) {
 		t.Errorf("stdout = %q, want the mount point named after the favourite", stdout)
 	}
 }
-
-func TestFavImportWithNothingToImport(t *testing.T) {
-	t.Parallel()
-	home := writeHome(t, "")
-
-	stdout, stderr, err := run(t, home, "fav", "import")
-	if err != nil {
-		t.Fatalf("run() error = %v", err)
-	}
-	if stdout != "" {
-		t.Errorf("stdout = %q, want the note kept off it", stdout)
-	}
-	if !strings.Contains(stderr, "nothing to import") {
-		t.Errorf("stderr = %q, want it to say there was nothing to import", stderr)
-	}
-}

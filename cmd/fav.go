@@ -22,7 +22,7 @@ func (a *App) newFavCmd() *cobra.Command {
 			return a.listFavourites(cmd)
 		},
 	}
-	cmd.AddCommand(a.newFavListCmd(), a.newFavAddCmd(), a.newFavRemoveCmd(), a.newFavImportCmd())
+	cmd.AddCommand(a.newFavListCmd(), a.newFavAddCmd(), a.newFavRemoveCmd())
 	return cmd
 }
 
@@ -142,41 +142,6 @@ func (a *App) newFavRemoveCmd() *cobra.Command {
 				return err
 			}
 			a.ui.Infof("deleted favourite %q", args[0])
-			return nil
-		},
-	}
-}
-
-func (a *App) newFavImportCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "import",
-		Short: "Import favourites from the war10ck sshfs shell function",
-		Long: "Read ~/.war10ck/.sshfs_favorites and add each entry as a favourite.\n\n" +
-			"The original file is left alone, so an import that picks awkward names\n" +
-			"can be undone by deleting the new favourites and running it again.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			legacy := favourites.LegacyPath(a.home)
-			store, err := favourites.Load(a.home)
-			if err != nil {
-				return err
-			}
-
-			claimed := reservedNames(cmd)
-			added, err := favourites.MigrateLegacy(store, legacy, func(name string) bool {
-				return claimed[name]
-			})
-			if err != nil {
-				return err
-			}
-			if added == 0 {
-				a.ui.Infof("nothing to import from %s", a.home.Collapse(legacy))
-				return nil
-			}
-			if err := favourites.Save(a.home, store); err != nil {
-				return err
-			}
-			a.ui.Infof("imported %d favourite(s) from %s", added, a.home.Collapse(legacy))
 			return nil
 		},
 	}

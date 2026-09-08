@@ -3,9 +3,7 @@ package favourites
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"reflect"
-	"slices"
 	"testing"
 
 	"github.com/thomaslaurenson/smount/internal/tilde"
@@ -183,115 +181,6 @@ func TestUniqueName(t *testing.T) {
 	}
 	if got := s.UniqueName("logs"); got != "logs-3" {
 		t.Errorf("UniqueName(logs) = %q, want logs-3", got)
-	}
-}
-
-func TestMigrateLegacy(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name      string
-		content   string
-		claimed   []string
-		wantAdded int
-		want      []Favourite
-	}{
-		{
-			name:      "host, path and label",
-			content:   "web01|/var/log|Work logs\n",
-			wantAdded: 1,
-			want:      []Favourite{{Name: "work-logs", Host: "web01", Path: "/var/log"}},
-		},
-		{
-			name:      "tilde becomes the empty home path",
-			content:   "web01|~|Home\n",
-			wantAdded: 1,
-			want:      []Favourite{{Name: "home", Host: "web01"}},
-		},
-		{
-			name:      "missing label falls back to the host",
-			content:   "web01|/srv|\n",
-			wantAdded: 1,
-			want:      []Favourite{{Name: "web01", Host: "web01", Path: "/srv"}},
-		},
-		{
-			name:      "duplicate labels are made unique",
-			content:   "web01|/a|Logs\nweb02|/b|Logs\n",
-			wantAdded: 2,
-			want: []Favourite{
-				{Name: "logs", Host: "web01", Path: "/a"},
-				{Name: "logs-2", Host: "web02", Path: "/b"},
-			},
-		},
-		{
-			name:      "blank and malformed lines skipped",
-			content:   "\nweb01|/a|Good\nnotarecord\n|/b|No host\n",
-			wantAdded: 1,
-			want:      []Favourite{{Name: "good", Host: "web01", Path: "/a"}},
-		},
-		{
-			name:      "a path containing a pipe keeps the rest as the label",
-			content:   "web01|/a|Label|with pipe\n",
-			wantAdded: 1,
-			want:      []Favourite{{Name: "label-with-pipe", Host: "web01", Path: "/a"}},
-		},
-		{
-			name:      "a label claimed by a subcommand is suffixed, not lost",
-			content:   "web01|/var/log|Version\nweb02|/srv|Docs\n",
-			claimed:   []string{"version", "docs-2"},
-			wantAdded: 2,
-			want: []Favourite{
-				{Name: "version-2", Host: "web01", Path: "/var/log"},
-				{Name: "docs", Host: "web02", Path: "/srv"},
-			},
-		},
-		{
-			name:      "a host falling back to a claimed name is suffixed too",
-			content:   "version|/srv|\n",
-			claimed:   []string{"version", "version-2"},
-			wantAdded: 1,
-			want:      []Favourite{{Name: "version-3", Host: "version", Path: "/srv"}},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			path := filepath.Join(t.TempDir(), "favorites")
-			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
-				t.Fatalf("writing legacy file: %v", err)
-			}
-
-			// A nil claimed is the interesting default, so only the cases
-			// that name something build a predicate.
-			var claimed func(string) bool
-			if tc.claimed != nil {
-				claimed = func(name string) bool { return slices.Contains(tc.claimed, name) }
-			}
-
-			s := &Store{Version: Version}
-			added, err := MigrateLegacy(s, path, claimed)
-			if err != nil {
-				t.Fatalf("MigrateLegacy() error = %v", err)
-			}
-			if added != tc.wantAdded {
-				t.Errorf("MigrateLegacy() added = %d, want %d", added, tc.wantAdded)
-			}
-			if !reflect.DeepEqual(s.Favourites, tc.want) {
-				t.Errorf("favourites = %+v, want %+v", s.Favourites, tc.want)
-			}
-		})
-	}
-}
-
-func TestMigrateLegacyMissingFile(t *testing.T) {
-	t.Parallel()
-	s := &Store{Version: Version}
-	added, err := MigrateLegacy(s, filepath.Join(t.TempDir(), "absent"), nil)
-	if err != nil {
-		t.Fatalf("MigrateLegacy() error = %v, want nil", err)
-	}
-	if added != 0 {
-		t.Errorf("MigrateLegacy() added = %d, want 0", added)
 	}
 }
 

@@ -93,8 +93,8 @@ func ValidateHost(host string) error {
 // spec which will be refused is never displayed as though it were about to run.
 //
 // This is the check that matters, rather than the one in sshconf.Resolve: a
-// host reaches sshfs from a favourites file and from a legacy import as well as
-// from the command line, and only some of those pass through Resolve.
+// host reaches sshfs from a favourites file as well as from the command line,
+// and only some of those pass through Resolve.
 func (s Spec) Validate() error {
 	if err := ValidateHost(s.Host); err != nil {
 		return err

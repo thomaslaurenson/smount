@@ -60,7 +60,6 @@ smount version               # print the version
 smount fav list              # list saved favourites
 smount fav add logs web01:/var/log
 smount fav rm logs
-smount fav import            # import from the war10ck sshfs shell function
 
 smount completion bash > /etc/bash_completion.d/smount
 ```
