@@ -82,6 +82,10 @@ Completion offers favourite names, host aliases and active mount names.
 
 `smount umount` takes `--all` to unmount everything, and `--force` to lazily unmount a dropped connection. `smount ls` and `smount hosts` both take `--short` (`-s`) to print bare names, one per line, for scripting.
 
+Both tables fit themselves to the terminal, clipping a long value in the middle so that both ends of a host name stay readable. Redirected or piped output is never clipped, so a script sees full values.
+
+In `smount hosts` the second column is empty for a host that resolves to itself, as the local user, on the default port, since there it would only repeat the first column.
+
 A favourite is saved from a mount rather than declared: once an ad hoc mount succeeds, smount offers to keep it, and the `--at`, `--opt` and `--ro` that mount used are saved with it. Favourites can also be written straight into `favourites.json`.
 
 ## Mount points

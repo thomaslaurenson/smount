@@ -63,6 +63,12 @@ type App struct {
 
 	// colour is the --color flag, as typed.
 	colour string
+
+	// tableWidth is what the tables on stdout fit themselves to, or zero when
+	// stdout is not a terminal. It is asked of stdout rather than stderr
+	// because a table is the answer, and the answer's stream is the one whose
+	// width bounds it.
+	tableWidth int
 }
 
 // buildUI settles what cmd knows about the streams and hands it to the UI.
@@ -79,6 +85,7 @@ func (a *App) buildUI() error {
 	if err != nil {
 		return fmt.Errorf("--color %w", err)
 	}
+	a.tableWidth = ui.TerminalWidth(os.Stdout)
 	a.ui = ui.New(
 		a.in,
 		a.errw,
@@ -133,7 +140,7 @@ func NewRootCmd(home string, in *os.File, out, errw io.Writer) *cobra.Command {
 	opts.register(root)
 
 	root.AddCommand(
-		newLsCmd(a.home),
+		a.newLsCmd(),
 		a.newUmountCmd(),
 		a.newHostsCmd(),
 		a.newCheckCmd(),

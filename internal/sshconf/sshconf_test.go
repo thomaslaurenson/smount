@@ -423,3 +423,63 @@ func TestResolveSucceedsInsideTheTimeout(t *testing.T) {
 		t.Errorf("HostName = %q, want %q", host.HostName, "stub.example")
 	}
 }
+
+func TestHostDescribe(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		host  Host
+		local string
+		want  string
+	}{
+		{
+			name:  "an alias that resolves to itself says nothing",
+			host:  Host{Name: "web01", HostName: "web01", User: "thomas", Port: "22"},
+			local: "thomas",
+			want:  "",
+		},
+		{
+			name:  "a different hostname is worth showing",
+			host:  Host{Name: "nesi", HostName: "login.mahuika.nesi.org.nz", User: "thomas", Port: "22"},
+			local: "thomas",
+			want:  "login.mahuika.nesi.org.nz",
+		},
+		{
+			// The name comes back with it, because a bare "tlau083@" reads as
+			// an address someone forgot to finish.
+			name:  "a different user keeps the name beside it",
+			host:  Host{Name: "compute-01", HostName: "compute-01", User: "tlau083", Port: "22"},
+			local: "thomas",
+			want:  "tlau083@compute-01",
+		},
+		{
+			name:  "a non-default port keeps the name beside it",
+			host:  Host{Name: "web01", HostName: "web01", User: "thomas", Port: "2222"},
+			local: "thomas",
+			want:  "web01:2222",
+		},
+		{
+			name:  "everything different at once",
+			host:  Host{Name: "web01", HostName: "10.0.0.15", User: "deploy", Port: "2222"},
+			local: "thomas",
+			want:  "deploy@10.0.0.15:2222",
+		},
+		{
+			// An unknown local user prints every user rather than guessing that
+			// one of them is uninteresting.
+			name:  "an unknown local user shows the resolved one",
+			host:  Host{Name: "web01", HostName: "web01", User: "thomas", Port: "22"},
+			local: "",
+			want:  "thomas@web01",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.host.Describe(tc.local); got != tc.want {
+				t.Errorf("Describe(%q) = %q, want %q", tc.local, got, tc.want)
+			}
+		})
+	}
+}

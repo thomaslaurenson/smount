@@ -119,6 +119,19 @@ func (s Size) orDefault() Size {
 	return s
 }
 
+// TerminalWidth returns the width of f, or zero when f is not a terminal.
+//
+// Zero is how a table is told not to fit itself to anything. Output that is
+// being piped or redirected keeps its full values, because what reads it is
+// not a person with a window, and clipping a name there would corrupt it
+// rather than tidy it.
+func TerminalWidth(f *os.File) int {
+	if !term.IsTerminal(int(f.Fd())) {
+		return 0
+	}
+	return TerminalSize(f).Width
+}
+
 // ColourMode is when smount may write ANSI styling, as --color selects it.
 type ColourMode string
 

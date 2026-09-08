@@ -98,10 +98,54 @@ func (h *Host) Addr() string {
 	if h.User != "" {
 		addr = h.User + "@" + addr
 	}
-	if h.Port != "" && h.Port != "22" {
+	if h.Port != "" && h.Port != defaultPort {
 		addr += ":" + h.Port
 	}
 	return addr
+}
+
+// defaultPort is the port ssh uses when a config names none, and so the one
+// worth saying nothing about.
+const defaultPort = "22"
+
+// Describe renders what ssh resolved that the alias does not already say,
+// returning the empty string when it says nothing new.
+//
+// localUser is the user running smount, which the caller reads because the
+// process belongs to it. ssh reports a user for every host, and on most of
+// them it is simply that one, so printing it would fill a column with a fact
+// the reader supplied.
+//
+// A host that adds only a user or a port still shows its name, because
+// "tlau083@" alone reads as an unfinished address.
+func (h *Host) Describe(localUser string) string {
+	user := h.User
+	if user == localUser {
+		user = ""
+	}
+	hostName := h.HostName
+	if hostName == h.Name {
+		hostName = ""
+	}
+	port := h.Port
+	if port == defaultPort {
+		port = ""
+	}
+	if user == "" && hostName == "" && port == "" {
+		return ""
+	}
+
+	if hostName == "" {
+		hostName = h.Name
+	}
+	out := hostName
+	if user != "" {
+		out = user + "@" + out
+	}
+	if port != "" {
+		out += ":" + port
+	}
+	return out
 }
 
 // ErrInvalidAlias is returned for an alias ssh would misread as an option.

@@ -2,12 +2,13 @@ package cmd
 
 import (
 	"fmt"
-	"text/tabwriter"
+	"os/user"
 
 	"github.com/spf13/cobra"
 
 	"github.com/thomaslaurenson/smount/internal/config"
 	"github.com/thomaslaurenson/smount/internal/sshconf"
+	"github.com/thomaslaurenson/smount/internal/ui"
 )
 
 func (a *App) newHostsCmd() *cobra.Command {
@@ -18,7 +19,10 @@ func (a *App) newHostsCmd() *cobra.Command {
 		Short: "List the SSH hosts smount can mount",
 		Long: "List every host alias in the ssh config and the files it includes.\n" +
 			"Wildcard patterns such as \"Host *\" are omitted, since they configure\n" +
-			"connections rather than name somewhere to connect to.",
+			"connections rather than name somewhere to connect to.\n\n" +
+			"The second column is empty for a host that resolves to itself as the\n" +
+			"local user on the default port, since there it would only repeat the\n" +
+			"first column.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load(a.home)
@@ -38,23 +42,34 @@ func (a *App) newHostsCmd() *cobra.Command {
 			}
 
 			resolved := sshconf.ResolveAll(cmd.Context(), aliases)
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "HOST\tRESOLVES TO\tIDENTITY")
+			rows := make([][]string, 0, len(aliases))
 			for _, alias := range aliases {
 				host := resolved[alias]
 				if host == nil {
-					fmt.Fprintf(w, "%s\t-\t-\n", alias)
+					rows = append(rows, []string{alias, "-"})
 					continue
 				}
-				identity := host.Identity
-				if identity == "" {
-					identity = "-"
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\n", alias, host.Addr(), identity)
+				rows = append(rows, []string{alias, host.Describe(localUser())})
 			}
-			return w.Flush()
+			return ui.RenderTable(cmd.OutOrStdout(), a.tableWidth,
+				[]string{"HOST", "RESOLVES TO"}, rows)
 		},
 	}
 	cmd.Flags().BoolVarP(&short, "short", "s", false, "print host names only, without resolving them")
 	return cmd
+}
+
+// localUser returns the name of the user running smount, or the empty string
+// when it cannot be determined.
+//
+// It decides which resolved users are worth printing: ssh reports a user for
+// every host, and on most of them it is simply this one, which the alias
+// already implies. An empty answer prints every user, which is the right way
+// to fail here.
+func localUser() string {
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return u.Username
 }

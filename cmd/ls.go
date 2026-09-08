@@ -2,15 +2,14 @@ package cmd
 
 import (
 	"fmt"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/thomaslaurenson/smount/internal/mount"
-	"github.com/thomaslaurenson/smount/internal/tilde"
+	"github.com/thomaslaurenson/smount/internal/ui"
 )
 
-func newLsCmd(home tilde.Home) *cobra.Command {
+func (a *App) newLsCmd() *cobra.Command {
 	var short bool
 
 	cmd := &cobra.Command{
@@ -37,12 +36,17 @@ func newLsCmd(home tilde.Home) *cobra.Command {
 				return nil
 			}
 
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tMOUNT POINT\tSOURCE\tSTATUS")
+			rows := make([][]string, 0, len(mounts))
 			for _, m := range mounts {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Name, home.Collapse(m.Target), m.Source, m.State)
+				rows = append(rows, []string{
+					m.Name,
+					a.home.Collapse(m.Target),
+					m.Source,
+					m.State.String(),
+				})
 			}
-			return w.Flush()
+			return ui.RenderTable(cmd.OutOrStdout(), a.tableWidth,
+				[]string{"NAME", "MOUNT POINT", "SOURCE", "STATUS"}, rows)
 		},
 	}
 	cmd.Flags().BoolVarP(&short, "short", "s", false, "print mount names only, without the table")

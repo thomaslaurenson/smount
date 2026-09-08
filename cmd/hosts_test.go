@@ -38,6 +38,21 @@ func TestHosts(t *testing.T) {
 	}
 }
 
+// TestHostsDropsTheIdentityColumn guards the narrowed table. The identity was
+// the same path on nearly every row, so it cost a column and said nothing.
+func TestHostsDropsTheIdentityColumn(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	stdout, _, err := run(t, home, "hosts")
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if strings.Contains(stdout, "IDENTITY") {
+		t.Errorf("stdout = %q, want no identity column", stdout)
+	}
+}
+
 func TestHostsReportsAMissingConfig(t *testing.T) {
 	t.Parallel()
 
