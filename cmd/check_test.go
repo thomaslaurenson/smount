@@ -23,3 +23,21 @@ func TestCheck(t *testing.T) {
 		t.Errorf("error = %v, want it to report the failed check count", err)
 	}
 }
+
+// TestCheckUsesTheMarkerVocabulary guards against the old [ok] and [!!] pair,
+// which named severities no other smount output used.
+func TestCheckUsesTheMarkerVocabulary(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	stdout, _, _ := run(t, home, "check")
+
+	for _, old := range []string{"[ok]", "[!!]"} {
+		if strings.Contains(stdout, old) {
+			t.Errorf("stdout = %q, want %q gone", stdout, old)
+		}
+	}
+	if !strings.Contains(stdout, "[*]") {
+		t.Errorf("stdout = %q, want the info marker on a passing check", stdout)
+	}
+}

@@ -384,7 +384,9 @@ func (s *selector) refilter() {
 // lines renders the current state as the exact rows to print.
 func (s *selector) lines() []string {
 	out := make([]string, 0, s.visible+3)
-	out = append(out, truncate(s.title, s.width))
+	// The title is the question the list is asking, so it carries the same
+	// marker a typed prompt does.
+	out = append(out, truncate(markQuestion+" "+s.title, s.width))
 	out = append(out, truncate("> "+string(s.filter), s.width))
 
 	end := s.offset + s.visible

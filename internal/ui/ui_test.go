@@ -76,8 +76,8 @@ func TestConfirmShowsWhichAnswerIsTheDefault(t *testing.T) {
 		def  bool
 		want string
 	}{
-		{name: "true default", def: true, want: "Proceed? [Y/n]: "},
-		{name: "false default", def: false, want: "Proceed? [y/N]: "},
+		{name: "true default", def: true, want: "[?] Proceed? [Y/n]: "},
+		{name: "false default", def: false, want: "[?] Proceed? [y/N]: "},
 	}
 
 	for _, tc := range tests {
@@ -143,8 +143,8 @@ func TestLineWritesThePrompt(t *testing.T) {
 	if _, err := u.Line("Remote path: "); err != nil {
 		t.Fatalf("Line() error = %v", err)
 	}
-	if got := buf.String(); got != "Remote path: " {
-		t.Errorf("prompt = %q, want %q", got, "Remote path: ")
+	if want := "[?] Remote path: "; buf.String() != want {
+		t.Errorf("prompt = %q, want %q", buf.String(), want)
 	}
 }
 
@@ -359,6 +359,30 @@ func TestPaletteDim(t *testing.T) {
 			t.Parallel()
 			if got := NewPalette(tc.enabled).Dim(tc.input); got != tc.want {
 				t.Errorf("Dim(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMarkersMatchTheConvention pins the vocabulary to the one every tool
+// shares, so a rename here has to be a deliberate edit rather than a typo.
+func TestMarkersMatchTheConvention(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		marker string
+		want   string
+	}{
+		{name: "info", marker: MarkInfo, want: "[*]"},
+		{name: "warning or error", marker: MarkWarn, want: "[!]"},
+		{name: "question", marker: markQuestion, want: "[?]"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if tc.marker != tc.want {
+				t.Errorf("marker = %q, want %q", tc.marker, tc.want)
 			}
 		})
 	}

@@ -17,6 +17,24 @@ import (
 	"golang.org/x/term"
 )
 
+// Markers prefix every line smount writes for a person to read, saying which
+// kind of line it is.
+//
+// A line carrying structured output takes none of them: a table or a list of
+// names is the answer somebody asked for rather than a message about it, and a
+// prefix there would have to be stripped by whatever reads it next.
+const (
+	// MarkInfo is information, progress, or a result.
+	MarkInfo = "[*]"
+
+	// MarkWarn is a warning or an error.
+	MarkWarn = "[!]"
+
+	// markQuestion is a question with an answer expected. It is unexported
+	// because prompts are drawn here and nothing outside asks one.
+	markQuestion = "[?]"
+)
+
 // Errors reported when a prompt cannot run or the user declines to answer.
 var (
 	ErrCancelled   = errors.New("cancelled")
@@ -237,13 +255,17 @@ func (u *UI) Confirm(question string, def bool) (bool, error) {
 
 // Line reads one line of input, with prompt shown on the output stream.
 //
+// The prompt is marked as a question, so that every line smount writes says
+// which kind of line it is. Confirm asks through here too, so the marker is
+// applied once for both.
+//
 // A final line with no newline after it is still an answer, so only a read that
 // returned nothing at all counts as the user backing out.
 func (u *UI) Line(prompt string) (string, error) {
 	if !u.Interactive() {
 		return "", ErrNotTerminal
 	}
-	fmt.Fprint(u.out, prompt)
+	fmt.Fprint(u.out, markQuestion+" "+prompt)
 	line, err := u.in.ReadString('\n')
 	if err != nil && line == "" {
 		fmt.Fprintln(u.out)
@@ -254,10 +276,10 @@ func (u *UI) Line(prompt string) (string, error) {
 
 // Infof writes a progress message.
 func (u *UI) Infof(format string, args ...any) {
-	fmt.Fprintf(u.out, "[*] "+format+"\n", args...)
+	fmt.Fprintf(u.out, MarkInfo+" "+format+"\n", args...)
 }
 
 // Warnf writes a warning.
 func (u *UI) Warnf(format string, args ...any) {
-	fmt.Fprintf(u.out, "[!] "+format+"\n", args...)
+	fmt.Fprintf(u.out, MarkWarn+" "+format+"\n", args...)
 }

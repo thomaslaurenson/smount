@@ -23,7 +23,7 @@ func main() {
 	// has to ask the environment for itself.
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "smount: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[!] %v\n", err)
 		os.Exit(1)
 	}
 
@@ -43,7 +43,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "[*] cancelled")
 			return
 		}
-		fmt.Fprintf(os.Stderr, "smount: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[!] %v\n", err)
 		os.Exit(1)
 	}
 }

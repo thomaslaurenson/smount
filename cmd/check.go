@@ -13,6 +13,7 @@ import (
 	"github.com/thomaslaurenson/smount/internal/mount"
 	"github.com/thomaslaurenson/smount/internal/sshconf"
 	"github.com/thomaslaurenson/smount/internal/tilde"
+	"github.com/thomaslaurenson/smount/internal/ui"
 )
 
 func (a *App) newCheckCmd() *cobra.Command {
@@ -61,9 +62,9 @@ func runCheck(ctx context.Context, out io.Writer, home tilde.Home) error {
 
 	failed := 0
 	for _, c := range checks {
-		marker := "[ok]"
+		marker := ui.MarkInfo
 		if c.failed {
-			marker = "[!!]"
+			marker = ui.MarkWarn
 			failed++
 		}
 		fmt.Fprintf(out, "%s %-14s %s\n", marker, c.name, c.detail)
