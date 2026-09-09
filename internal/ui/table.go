@@ -25,7 +25,13 @@ const ellipsis = "..."
 // A width of zero lays the table out at its natural size and clips nothing,
 // which is what a redirected or piped run wants: whatever is reading it is not
 // a person looking at a window.
+//
+// A column that is empty on every row is dropped, header and all. Cells are
+// left empty where a value would only repeat what another column already says,
+// so a run where nothing is unusual would otherwise print a heading over a
+// column of nothing and take that room from the columns that do differ.
 func RenderTable(w io.Writer, width int, headers []string, rows [][]string) error {
+	headers, rows = dropEmptyColumns(headers, rows)
 	widths := naturalWidths(headers, rows)
 	if width > 0 {
 		fitColumns(widths, width)
@@ -40,6 +46,48 @@ func RenderTable(w io.Writer, width int, headers []string, rows [][]string) erro
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// dropEmptyColumns removes every column that has no content on any row.
+//
+// A table with no rows keeps all its columns, since nothing there says a
+// column is uninteresting rather than merely unused. A table whose every cell
+// is empty keeps them too, rather than rendering as nothing at all.
+func dropEmptyColumns(headers []string, rows [][]string) ([]string, [][]string) {
+	if len(rows) == 0 {
+		return headers, rows
+	}
+
+	keep := make([]int, 0, len(headers))
+	for i := range headers {
+		for _, row := range rows {
+			if i < len(row) && row[i] != "" {
+				keep = append(keep, i)
+				break
+			}
+		}
+	}
+	if len(keep) == len(headers) || len(keep) == 0 {
+		return headers, rows
+	}
+
+	kept := make([]string, 0, len(keep))
+	for _, i := range keep {
+		kept = append(kept, headers[i])
+	}
+	trimmed := make([][]string, 0, len(rows))
+	for _, row := range rows {
+		out := make([]string, 0, len(keep))
+		for _, i := range keep {
+			if i < len(row) {
+				out = append(out, row[i])
+				continue
+			}
+			out = append(out, "")
+		}
+		trimmed = append(trimmed, out)
+	}
+	return kept, trimmed
 }
 
 // naturalWidths returns the width each column needs to clip nothing.

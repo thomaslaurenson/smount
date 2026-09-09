@@ -887,3 +887,28 @@ func TestDescribeDiffersFromSource(t *testing.T) {
 		t.Errorf("Describe() = %q, want the colon dropped", got)
 	}
 }
+
+func TestMountUnderBase(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		mount Mount
+		base  string
+		want  bool
+	}{
+		{name: "derived", mount: Mount{Target: "/home/t/sshfs/web01"}, base: "/home/t/sshfs", want: true},
+		{name: "named with --at", mount: Mount{Target: "/home/t/scratch/logs"}, base: "/home/t/sshfs", want: false},
+		{name: "nested deeper than the base", mount: Mount{Target: "/home/t/sshfs/a/b"}, base: "/home/t/sshfs", want: false},
+		{name: "a trailing separator on the base", mount: Mount{Target: "/home/t/sshfs/web01"}, base: "/home/t/sshfs/", want: true},
+		{name: "no base at all", mount: Mount{Target: "/home/t/sshfs/web01"}, base: "", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.mount.UnderBase(tc.base); got != tc.want {
+				t.Errorf("UnderBase(%q) = %v, want %v", tc.base, got, tc.want)
+			}
+		})
+	}
+}

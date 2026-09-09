@@ -9,6 +9,9 @@ func TestHosts(t *testing.T) {
 	t.Parallel()
 	home := writeHome(t, "")
 
+	// The header is what separates the two forms. It is checked on HOST rather
+	// than on RESOLVES TO, because a config whose hosts all resolve to
+	// themselves leaves that column empty and it is then dropped.
 	tests := []struct {
 		name       string
 		args       []string
@@ -31,7 +34,7 @@ func TestHosts(t *testing.T) {
 					t.Errorf("stdout = %q, want it to list %q", stdout, host)
 				}
 			}
-			if got := strings.Contains(stdout, "RESOLVES TO"); got != tc.wantHeader {
+			if got := strings.Contains(stdout, "HOST"); got != tc.wantHeader {
 				t.Errorf("stdout has a header = %v, want %v", got, tc.wantHeader)
 			}
 		})

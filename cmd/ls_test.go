@@ -21,7 +21,9 @@ func TestLs(t *testing.T) {
 		}
 		return
 	}
-	if !strings.Contains(stdout, "MOUNT POINT") {
+	// SOURCE is the one column that always carries something, so it is the
+	// header that survives however unremarkable the mounts are.
+	if !strings.Contains(stdout, "SOURCE") {
 		t.Errorf("stdout = %q, want the table header on it", stdout)
 	}
 }

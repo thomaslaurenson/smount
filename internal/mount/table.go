@@ -72,6 +72,12 @@ func (m Mount) Describe() string {
 	return describeSource(m.Host, m.Path)
 }
 
+// UnderBase reports whether smount derived this mount point, meaning it sits
+// directly under base rather than having been named with --at.
+func (m Mount) UnderBase(base string) bool {
+	return ownsTarget(m.Target, base)
+}
+
 // Active returns every sshfs mount visible to this process.
 //
 // Mounts are sorted by mount point.

@@ -84,7 +84,7 @@ Completion offers favourite names, host aliases and active mount names.
 
 Both tables fit themselves to the terminal, clipping a long value in the middle so that both ends of a host name stay readable. Redirected or piped output is never clipped, so a script sees full values.
 
-In `smount hosts` the second column is empty for a host that resolves to itself, as the local user, on the default port, since there it would only repeat the first column.
+A cell is left empty where it would only repeat another column, and a column that is empty for every row is not shown at all. In `smount hosts` the second column is empty for a host that resolves to itself, as the local user, on the default port. In `smount ls` the mount point appears only when it is not the one smount would derive from the name, and the status only when a mount is not answering.
 
 A favourite is saved from a mount rather than declared: once an ad hoc mount succeeds, smount offers to keep it, and the `--at`, `--opt` and `--ro` that mount used are saved with it. Favourites can also be written straight into `favourites.json`.
 

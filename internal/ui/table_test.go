@@ -128,3 +128,78 @@ func TestFitColumnsStopsAtTheMinimum(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderTableDropsAnEmptyColumn(t *testing.T) {
+	t.Parallel()
+	headers := []string{"NAME", "MOUNT POINT", "SOURCE", "STATUS"}
+	tests := []struct {
+		name     string
+		rows     [][]string
+		wantGone []string
+		wantKept []string
+	}{
+		{
+			name:     "nothing unusual leaves two columns",
+			rows:     [][]string{{"web01", "", "web01", ""}, {"db", "", "db:/var", ""}},
+			wantGone: []string{"MOUNT POINT", "STATUS"},
+			wantKept: []string{"NAME", "SOURCE"},
+		},
+		{
+			name:     "one odd row keeps its column for everyone",
+			rows:     [][]string{{"web01", "", "web01", ""}, {"logs", "~/scratch/logs", "web01:/var/log", "stale"}},
+			wantGone: nil,
+			wantKept: []string{"NAME", "MOUNT POINT", "SOURCE", "STATUS"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var b strings.Builder
+			if err := RenderTable(&b, 80, headers, tc.rows); err != nil {
+				t.Fatalf("RenderTable() error = %v", err)
+			}
+			header := strings.Split(b.String(), "\n")[0]
+			for _, gone := range tc.wantGone {
+				if strings.Contains(header, gone) {
+					t.Errorf("header = %q, want %q dropped", header, gone)
+				}
+			}
+			for _, kept := range tc.wantKept {
+				if !strings.Contains(header, kept) {
+					t.Errorf("header = %q, want %q kept", header, kept)
+				}
+			}
+		})
+	}
+}
+
+// TestRenderTableKeepsColumnsWithNoRows guards the degenerate cases: with
+// nothing to judge a column by, dropping one would hide a heading the caller
+// asked for.
+func TestRenderTableKeepsColumnsWithNoRows(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		rows [][]string
+	}{
+		{name: "no rows at all", rows: nil},
+		{name: "rows that are entirely empty", rows: [][]string{{"", ""}}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var b strings.Builder
+			if err := RenderTable(&b, 80, []string{"NAME", "SOURCE"}, tc.rows); err != nil {
+				t.Fatalf("RenderTable() error = %v", err)
+			}
+			header := strings.Split(b.String(), "\n")[0]
+			for _, want := range []string{"NAME", "SOURCE"} {
+				if !strings.Contains(header, want) {
+					t.Errorf("header = %q, want %q in it", header, want)
+				}
+			}
+		})
+	}
+}
