@@ -436,8 +436,12 @@ func row(p Palette, item Item, labelWidth, budget int) string {
 		label += strings.Repeat(" ", pad)
 	}
 
+	// Anything at all is rendered rather than nothing, down to a bare
+	// ellipsis. A blank detail means the item has nothing worth adding, so a
+	// detail dropped for want of room would claim that about an item which
+	// does have something to say.
 	rest := budget - width(label) - 2
-	if rest < 4 {
+	if rest < 1 {
 		return label
 	}
 	// Dim is applied after clipping, so the escape bytes never count towards

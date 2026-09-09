@@ -545,3 +545,21 @@ func TestRefilterRanksLabelMatchesFirst(t *testing.T) {
 		t.Errorf("first match = %d, want the item whose label matched (2)", s.matches[0])
 	}
 }
+
+// TestRowKeepsACrampedDetail guards the meaning of a blank detail. Elsewhere it
+// says the item has nothing to add, so a row must not render one that way for
+// want of room.
+func TestRowKeepsACrampedDetail(t *testing.T) {
+	t.Parallel()
+	item := Item{Label: "web01", Detail: "deploy@10.0.0.15:2222"}
+
+	for _, budget := range []int{9, 10, 11, 12, 20} {
+		got := stripANSI(row(NewPalette(false), item, 5, budget))
+		if !strings.Contains(got, ".") {
+			t.Errorf("row at budget %d = %q, want some of the detail or an ellipsis", budget, got)
+		}
+		if width(got) > budget {
+			t.Errorf("row at budget %d = %q, which is %d columns", budget, got, width(got))
+		}
+	}
+}
