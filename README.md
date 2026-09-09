@@ -82,11 +82,35 @@ Completion offers favourite names, host aliases and active mount names.
 
 `smount umount` takes `--all` to unmount everything, and `--force` to lazily unmount a dropped connection. `smount ls` and `smount hosts` both take `--short` (`-s`) to print bare names, one per line, for scripting.
 
+A favourite is saved from a mount rather than declared: once an ad hoc mount succeeds, smount offers to keep it, and the `--at`, `--opt` and `--ro` that mount used are saved with it. Favourites can also be written straight into `favourites.json`.
+
+## Output
+
+stdout carries the answer and nothing else, so it is safe to redirect or parse:
+
+| Command | On stdout |
+|---|---|
+| `smount ls`, `smount hosts` | the table |
+| `smount ls --short`, `smount hosts --short` | one bare name per line |
+| `smount --dry-run <target>` | the sshfs command line |
+| `smount check` | the report |
+| `smount version` | the version |
+
+Everything else is on stderr: the mount summary, the interactive menus, prompts, progress notes, warnings and errors. A mount can therefore be scripted without its conversation landing in the output, and `smount ls --short | xargs -n1 smount umount` sees only names.
+
+Messages carry a marker saying what kind of line they are: `[*]` a note or a result, `[!]` a warning or an error, `[?]` a question. The marker says what kind of message it is, not which stream it went to, so `smount check` writes a marked report to stdout. Table rows and `--short` names carry no marker.
+
 Both tables fit themselves to the terminal, clipping a long value in the middle so that both ends of a host name stay readable. Redirected or piped output is never clipped, so a script sees full values.
 
 A cell is left empty where it would only repeat another column, and a column that is empty for every row is not shown at all. In `smount hosts` the second column is empty for a host that resolves to itself, as the local user, on the default port. In `smount ls` the mount point appears only when it is not the one smount would derive from the name, and the status only when a mount is not answering.
 
-A favourite is saved from a mount rather than declared: once an ad hoc mount succeeds, smount offers to keep it, and the `--at`, `--opt` and `--ro` that mount used are saved with it. Favourites can also be written straight into `favourites.json`.
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| 0 | success, including backing out of a prompt |
+| 1 | any failure, with a message on stderr |
+| 130 | interrupted with Ctrl-C, no message |
 
 ## Mount points
 
