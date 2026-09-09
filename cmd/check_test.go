@@ -41,3 +41,54 @@ func TestCheckUsesTheMarkerVocabulary(t *testing.T) {
 		t.Errorf("stdout = %q, want the info marker on a passing check", stdout)
 	}
 }
+
+func TestNameColumn(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		checks []result
+		want   int
+	}{
+		{name: "no checks", checks: nil, want: 0},
+		{name: "the longest name", checks: []result{{name: "ssh"}, {name: "stale mounts"}}, want: 12},
+		{name: "one check", checks: []result{{name: "sshfs"}}, want: 5},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := nameColumn(tc.checks); got != tc.want {
+				t.Errorf("nameColumn() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCheckLinesAlign is the guard for sizing the column from the data. The
+// fixed width it replaced cleared the longest current name by two characters,
+// so it would have misaligned the whole report on the next name added.
+func TestCheckLinesAlign(t *testing.T) {
+	t.Parallel()
+	checks := []result{
+		{name: "ssh", detail: "/usr/bin/ssh"},
+		{name: "stale mounts", detail: "2 not answering", failed: true},
+		{name: "a much longer check name", detail: "still aligned"},
+	}
+	names := nameColumn(checks)
+
+	want := -1
+	for _, c := range checks {
+		line := c.line("[*]", names)
+		at := strings.Index(line, c.detail)
+		if at < 0 {
+			t.Fatalf("line %q does not contain its detail %q", line, c.detail)
+		}
+		if want == -1 {
+			want = at
+			continue
+		}
+		if at != want {
+			t.Errorf("detail of %q begins at column %d, want %d", c.name, at, want)
+		}
+	}
+}

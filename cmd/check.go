@@ -60,6 +60,10 @@ func runCheck(ctx context.Context, out io.Writer, home tilde.Home) error {
 	checks = append(checks, mountBaseCheck(home, cfg))
 	checks = append(checks, mountsCheck(ctx)...)
 
+	// Sized from the names actually printed. A fixed column silently misaligns
+	// the whole report the first time a check with a longer name is added.
+	names := nameColumn(checks)
+
 	failed := 0
 	for _, c := range checks {
 		marker := ui.MarkInfo
@@ -67,12 +71,33 @@ func runCheck(ctx context.Context, out io.Writer, home tilde.Home) error {
 			marker = ui.MarkWarn
 			failed++
 		}
-		fmt.Fprintf(out, "%s %-14s %s\n", marker, c.name, c.detail)
+		fmt.Fprintln(out, c.line(marker, names))
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d check(s) failed", failed)
 	}
 	return nil
+}
+
+// line renders one check as it is printed.
+//
+// The detail is left to run over a narrow terminal rather than being clipped.
+// It is usually a path or an error to act on, and half of one is worse than a
+// wrapped line.
+func (c result) line(marker string, names int) string {
+	return fmt.Sprintf("%s %-*s %s", marker, names, c.name, c.detail)
+}
+
+// nameColumn returns the width the name column needs. Names are written in
+// this file and are ASCII, so counting bytes is counting characters.
+func nameColumn(checks []result) int {
+	widest := 0
+	for _, c := range checks {
+		if n := len(c.name); n > widest {
+			widest = n
+		}
+	}
+	return widest
 }
 
 func binaryCheck(name, why string) result {
