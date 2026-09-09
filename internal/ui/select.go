@@ -367,7 +367,7 @@ func (s *selector) refilter() {
 
 	var hits []scored
 	for i, item := range s.items {
-		if score, ok := match(item.Label, pattern); ok {
+		if score, ok := itemScore(item, pattern); ok {
 			hits = append(hits, scored{index: i, score: score})
 		}
 	}
@@ -518,6 +518,31 @@ func (s *selector) clear() {
 	fmt.Fprintf(&b, "\x1b[%dA", s.drawn)
 	s.drawn = 0
 	fmt.Fprint(s.out, b.String())
+}
+
+// detailPenalty puts every detail match below every label match.
+//
+// It only has to clear the worst score a label can produce, which is the
+// subsequence band at 10000 plus the spread across the label.
+const detailPenalty = 1_000_000
+
+// itemScore scores pattern against one item, preferring its label.
+//
+// The detail is searched as well because it is on screen. A row reading
+// "web01  deploy@10.0.0.15:2222" that cannot be found by typing the address
+// sitting beside it makes the filter look broken.
+//
+// A detail match ranks below every label match rather than competing with one,
+// so typing a name never buries the host it names under hosts that merely
+// mention it.
+func itemScore(item Item, pattern string) (int, bool) {
+	if score, ok := match(item.Label, pattern); ok {
+		return score, true
+	}
+	if score, ok := match(item.Detail, pattern); ok {
+		return detailPenalty + score, true
+	}
+	return 0, false
 }
 
 // match scores pattern against text, reporting whether it matches at all.

@@ -483,3 +483,65 @@ func TestRowClipsALabelInTheMiddle(t *testing.T) {
 		t.Errorf("row() = %q, want no tilde, which means a home directory elsewhere", got)
 	}
 }
+
+func TestItemScoreSearchesTheDetail(t *testing.T) {
+	t.Parallel()
+	item := Item{Label: "web01", Detail: "deploy@10.0.0.15:2222"}
+	tests := []struct {
+		name    string
+		pattern string
+		want    bool
+	}{
+		{name: "the label", pattern: "web", want: true},
+		{name: "the address in the detail", pattern: "10.0.0.15", want: true},
+		{name: "the user in the detail", pattern: "deploy", want: true},
+		{name: "the port in the detail", pattern: "2222", want: true},
+		{name: "neither", pattern: "zzz", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := itemScore(item, tc.pattern); ok != tc.want {
+				t.Errorf("itemScore(%q) matched = %v, want %v", tc.pattern, ok, tc.want)
+			}
+		})
+	}
+}
+
+// TestItemScoreWithNoDetail guards the common case after a listing suppresses
+// settings the whole config shares: most items carry no detail at all.
+func TestItemScoreWithNoDetail(t *testing.T) {
+	t.Parallel()
+	if _, ok := itemScore(Item{Label: "web01"}, "zzz"); ok {
+		t.Error("itemScore() matched an item with no detail, want no match")
+	}
+	if _, ok := itemScore(Item{Label: "web01"}, ""); !ok {
+		t.Error("itemScore() did not match on an empty pattern, want every item to match")
+	}
+}
+
+// TestRefilterRanksLabelMatchesFirst is the guard for the penalty. Typing a
+// host's name must not bury it under hosts that merely mention it.
+func TestRefilterRanksLabelMatchesFirst(t *testing.T) {
+	t.Parallel()
+	s := &selector{
+		items: []Item{
+			{Label: "jump-box", Detail: "web01.example.net"},
+			{Label: "gateway", Detail: "web01-backup.example.net"},
+			{Label: "web01", Detail: "10.0.0.15"},
+		},
+	}
+
+	s.filter = []rune("web01")
+	s.refilter()
+
+	if len(s.matches) != 3 {
+		t.Fatalf("matches = %v, want all three items", s.matches)
+	}
+	// Index 2 is the only label match, so it has to come first even though the
+	// other two match their details at the very start.
+	if s.matches[0] != 2 {
+		t.Errorf("first match = %d, want the item whose label matched (2)", s.matches[0])
+	}
+}
