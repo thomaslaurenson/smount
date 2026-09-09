@@ -99,7 +99,10 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 	if err != nil {
 		host = nil
 	}
-	summarise(cmd.ErrOrStderr(), a.home, spec, host)
+	// The baseline the listings compare against, so the summary only mentions
+	// a resolved address where ssh really sends the connection elsewhere.
+	defaults, _ := sshconf.Defaults(cmd.Context())
+	summarise(cmd.ErrOrStderr(), a.home, spec, host, defaults, cfg.Options)
 
 	if o.dryRun {
 		fmt.Fprintln(cmd.OutOrStdout(), spec.CommandLine())
@@ -234,25 +237,62 @@ func (a *App) pickPath(ctx context.Context) (string, error) {
 	return path, nil
 }
 
-// summarise prints what is about to be mounted, including where ssh says the
-// host actually resolves to.
-func summarise(out io.Writer, home tilde.Home, spec mount.Spec, host *sshconf.Host) {
+// summarise prints what is about to be mounted, immediately before the
+// confirmation prompt.
+//
+// Only the two lines that always carry something are unconditional. The
+// resolved address and the mount options are printed where they say something
+// the source line and config.json do not, because this is the last thing read
+// before answering a yes or no question, and a block whose lines are the same
+// on every run stops being read at all.
+func summarise(out io.Writer, home tilde.Home, spec mount.Spec, host, defaults *sshconf.Host, baseline []string) {
 	fmt.Fprintln(out, "[*] Mount summary:")
-	fmt.Fprintf(out, "      Host:        %s\n", spec.Host)
-	if host != nil {
-		fmt.Fprintf(out, "      Resolves to: %s\n", host.Addr())
-	}
-	fmt.Fprintf(out, "      Remote path: %s\n", displayPath(spec.Path))
+	fmt.Fprintf(out, "      Source:      %s\n", sourceLine(spec))
 	fmt.Fprintf(out, "      Mount point: %s\n", home.Collapse(spec.Target))
-	fmt.Fprintf(out, "      Options:     %s\n", spec.OptionString())
+	if host != nil {
+		if resolved := host.Describe(defaults); resolved != "" {
+			fmt.Fprintf(out, "      Resolves to: %s\n", resolved)
+		}
+	}
+	if extra := extraOptions(spec, baseline); len(extra) > 0 {
+		fmt.Fprintf(out, "      Options:     %s (with the configured defaults)\n",
+			strings.Join(extra, ", "))
+	}
 }
 
-// displayPath names the remote home directory, which is an empty path.
-func displayPath(path string) string {
-	if path == "" {
-		return "(home directory)"
+// sourceLine renders what is being mounted, naming the remote home directory
+// rather than leaving a bare host that says nothing about which directory.
+func sourceLine(spec mount.Spec) string {
+	if spec.Path == "" {
+		return spec.Host + " (home directory)"
 	}
-	return path
+	return spec.Describe()
+}
+
+// extraOptions returns the options this mount adds beyond the configured
+// defaults, with the read only flag among them.
+//
+// The baseline applies to every mount and is already written in config.json,
+// so listing it here fills the widest line of the summary with something the
+// user did not choose for this mount and cannot act on.
+func extraOptions(spec mount.Spec, baseline []string) []string {
+	seen := make(map[string]bool, len(baseline))
+	for _, opt := range baseline {
+		seen[opt] = true
+	}
+
+	var out []string
+	for _, opt := range spec.Options {
+		if seen[opt] {
+			continue
+		}
+		seen[opt] = true
+		out = append(out, opt)
+	}
+	if spec.ReadOnly && !seen["ro"] {
+		out = append(out, "ro")
+	}
+	return out
 }
 
 // offerToSave asks whether a newly created ad hoc mount is worth keeping.
