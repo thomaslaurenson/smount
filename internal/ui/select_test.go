@@ -415,7 +415,7 @@ func TestLabelColumn(t *testing.T) {
 	}{
 		{
 			name:  "the longest label when it is within the cap",
-			items: []Item{{Label: "web01"}, {Label: "db-prod"}},
+			items: []Item{{Label: "web01", Detail: "a"}, {Label: "db-prod", Detail: "b"}},
 			cols:  80,
 			want:  7,
 		},
@@ -423,13 +423,27 @@ func TestLabelColumn(t *testing.T) {
 			// 35 percent of 80. One long alias must not pad every short name
 			// beside it out to its own width.
 			name:  "capped at a share of the row",
-			items: []Item{{Label: "web01"}, {Label: strings.Repeat("x", 60)}},
+			items: []Item{{Label: "web01", Detail: "a"}, {Label: strings.Repeat("x", 60), Detail: "b"}},
+			cols:  80,
+			want:  28,
+		},
+		{
+			// With no detail anywhere there is nothing to keep room for, so a
+			// long alias is not clipped to protect an empty column.
+			name:  "no details means no cap",
+			items: []Item{{Label: strings.Repeat("x", 60)}},
+			cols:  80,
+			want:  60,
+		},
+		{
+			name:  "one detail is enough to bring the cap back",
+			items: []Item{{Label: strings.Repeat("x", 60)}, {Label: "web01", Detail: "10.0.0.1"}},
 			cols:  80,
 			want:  28,
 		},
 		{
 			name:  "never narrower than a single column",
-			items: []Item{{Label: "web01"}},
+			items: []Item{{Label: "web01", Detail: "d"}},
 			cols:  1,
 			want:  1,
 		},

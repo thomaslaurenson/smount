@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os/user"
 
 	"github.com/spf13/cobra"
 
@@ -42,6 +41,10 @@ func (a *App) newHostsCmd() *cobra.Command {
 			}
 
 			resolved := sshconf.ResolveAll(cmd.Context(), aliases)
+			// A baseline that will not resolve is not worth failing the listing
+			// over. A nil one simply leaves every setting in.
+			defaults, _ := sshconf.Defaults(cmd.Context())
+
 			rows := make([][]string, 0, len(aliases))
 			for _, alias := range aliases {
 				host := resolved[alias]
@@ -49,7 +52,7 @@ func (a *App) newHostsCmd() *cobra.Command {
 					rows = append(rows, []string{alias, "-"})
 					continue
 				}
-				rows = append(rows, []string{alias, host.Describe(localUser())})
+				rows = append(rows, []string{alias, host.Describe(defaults)})
 			}
 			return ui.RenderTable(cmd.OutOrStdout(), a.tableWidth,
 				[]string{"HOST", "RESOLVES TO"}, rows)
@@ -57,19 +60,4 @@ func (a *App) newHostsCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVarP(&short, "short", "s", false, "print host names only, without resolving them")
 	return cmd
-}
-
-// localUser returns the name of the user running smount, or the empty string
-// when it cannot be determined.
-//
-// It decides which resolved users are worth printing: ssh reports a user for
-// every host, and on most of them it is simply this one, which the alias
-// already implies. An empty answer prints every user, which is the right way
-// to fail here.
-func localUser() string {
-	u, err := user.Current()
-	if err != nil {
-		return ""
-	}
-	return u.Username
 }

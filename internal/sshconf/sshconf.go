@@ -108,19 +108,43 @@ func (h *Host) Addr() string {
 // worth saying nothing about.
 const defaultPort = "22"
 
+// defaultsProbe is the alias Defaults asks about.
+//
+// It ends in .invalid, which RFC 2606 reserves and no real host can use, so a
+// config naming it is close to impossible. A "Host *" block still matches it,
+// which is the point: the answer has to include whatever applies to every
+// host, since that is exactly what is not worth printing per host.
+const defaultsProbe = "smount-defaults.invalid"
+
+// Defaults returns the settings ssh applies to a host with nothing configured
+// for it.
+//
+// This is what separates a setting worth printing from one the whole config
+// shares. ssh reports a user and a port for every host whether the config
+// names them or not, so with nothing to compare against, a listing repeats the
+// same two values on every row.
+//
+// Only User and Port are meaningful in the result. The HostName it reports is
+// the probe itself and says nothing about any real host.
+func Defaults(ctx context.Context) (*Host, error) {
+	return Resolve(ctx, defaultsProbe)
+}
+
 // Describe renders what ssh resolved that the alias does not already say,
 // returning the empty string when it says nothing new.
 //
-// localUser is the user running smount, which the caller reads because the
-// process belongs to it. ssh reports a user for every host, and on most of
-// them it is simply that one, so printing it would fill a column with a fact
-// the reader supplied.
+// defaults comes from Defaults and is what ssh applies to a host configured
+// nowhere. A user or port matching it is left out, because ssh reports both
+// for every host and a value the whole config shares tells the reader nothing
+// about this one. A nil defaults leaves the user in, which is the right way to
+// fail when the baseline could not be resolved: showing too much is recoverable
+// and hiding a real setting is not.
 //
 // A host that adds only a user or a port still shows its name, because
 // "tlau083@" alone reads as an unfinished address.
-func (h *Host) Describe(localUser string) string {
+func (h *Host) Describe(defaults *Host) string {
 	user := h.User
-	if user == localUser {
+	if defaults != nil && user == defaults.User {
 		user = ""
 	}
 	hostName := h.HostName
@@ -128,7 +152,7 @@ func (h *Host) Describe(localUser string) string {
 		hostName = ""
 	}
 	port := h.Port
-	if port == defaultPort {
+	if port == defaultPort || (defaults != nil && port == defaults.Port) {
 		port = ""
 	}
 	if user == "" && hostName == "" && port == "" {

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -426,60 +427,92 @@ func TestResolveSucceedsInsideTheTimeout(t *testing.T) {
 
 func TestHostDescribe(t *testing.T) {
 	t.Parallel()
+	// What ssh reports for a host the config says nothing about: the local
+	// account and the standard port.
+	plain := &Host{Name: defaultsProbe, User: "thomas", Port: "22"}
+	// A config with a "Host *" block, where the shared user and port are the
+	// uninteresting ones and the local account never appears.
+	global := &Host{Name: defaultsProbe, User: "tlau083", Port: "2202"}
+
 	tests := []struct {
-		name  string
-		host  Host
-		local string
-		want  string
+		name     string
+		host     Host
+		defaults *Host
+		want     string
 	}{
 		{
-			name:  "an alias that resolves to itself says nothing",
-			host:  Host{Name: "web01", HostName: "web01", User: "thomas", Port: "22"},
-			local: "thomas",
-			want:  "",
+			name:     "an alias that resolves to itself says nothing",
+			host:     Host{Name: "web01", HostName: "web01", User: "thomas", Port: "22"},
+			defaults: plain,
+			want:     "",
 		},
 		{
-			name:  "a different hostname is worth showing",
-			host:  Host{Name: "nesi", HostName: "login.mahuika.nesi.org.nz", User: "thomas", Port: "22"},
-			local: "thomas",
-			want:  "login.mahuika.nesi.org.nz",
+			name:     "a different hostname is worth showing",
+			host:     Host{Name: "nesi", HostName: "login.mahuika.nesi.org.nz", User: "thomas", Port: "22"},
+			defaults: plain,
+			want:     "login.mahuika.nesi.org.nz",
 		},
 		{
 			// The name comes back with it, because a bare "tlau083@" reads as
 			// an address someone forgot to finish.
-			name:  "a different user keeps the name beside it",
-			host:  Host{Name: "compute-01", HostName: "compute-01", User: "tlau083", Port: "22"},
-			local: "thomas",
-			want:  "tlau083@compute-01",
+			name:     "a different user keeps the name beside it",
+			host:     Host{Name: "compute-01", HostName: "compute-01", User: "tlau083", Port: "22"},
+			defaults: plain,
+			want:     "tlau083@compute-01",
 		},
 		{
-			name:  "a non-default port keeps the name beside it",
-			host:  Host{Name: "web01", HostName: "web01", User: "thomas", Port: "2222"},
-			local: "thomas",
-			want:  "web01:2222",
+			name:     "a non-default port keeps the name beside it",
+			host:     Host{Name: "web01", HostName: "web01", User: "thomas", Port: "2222"},
+			defaults: plain,
+			want:     "web01:2222",
 		},
 		{
-			name:  "everything different at once",
-			host:  Host{Name: "web01", HostName: "10.0.0.15", User: "deploy", Port: "2222"},
-			local: "thomas",
-			want:  "deploy@10.0.0.15:2222",
+			name:     "everything different at once",
+			host:     Host{Name: "web01", HostName: "10.0.0.15", User: "deploy", Port: "2222"},
+			defaults: plain,
+			want:     "deploy@10.0.0.15:2222",
 		},
 		{
-			// An unknown local user prints every user rather than guessing that
-			// one of them is uninteresting.
-			name:  "an unknown local user shows the resolved one",
-			host:  Host{Name: "web01", HostName: "web01", User: "thomas", Port: "22"},
-			local: "",
-			want:  "thomas@web01",
+			// The case the local account could not answer: with "Host *" setting
+			// a user, every host resolves to it, and repeating it on every row
+			// says nothing about any of them.
+			name:     "a user shared by the whole config is not worth showing",
+			host:     Host{Name: "web01", HostName: "web01", User: "tlau083", Port: "2202"},
+			defaults: global,
+			want:     "",
+		},
+		{
+			name:     "a host overriding the shared user still shows it",
+			host:     Host{Name: "web01", HostName: "web01", User: "deploy", Port: "2202"},
+			defaults: global,
+			want:     "deploy@web01",
+		},
+		{
+			// Failing to resolve the baseline leaves the user in. Showing too
+			// much can be read past; hiding a real setting cannot.
+			name:     "no baseline shows the user",
+			host:     Host{Name: "web01", HostName: "web01", User: "thomas", Port: "22"},
+			defaults: nil,
+			want:     "thomas@web01",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := tc.host.Describe(tc.local); got != tc.want {
-				t.Errorf("Describe(%q) = %q, want %q", tc.local, got, tc.want)
+			if got := tc.host.Describe(tc.defaults); got != tc.want {
+				t.Errorf("Describe() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestDefaultsProbeMatchesNothingReal guards the probe alias. A name a config
+// could plausibly define would return that host's settings as the baseline and
+// suppress them everywhere.
+func TestDefaultsProbeMatchesNothingReal(t *testing.T) {
+	t.Parallel()
+	if !strings.HasSuffix(defaultsProbe, ".invalid") {
+		t.Errorf("defaultsProbe = %q, want a name under the reserved .invalid", defaultsProbe)
 	}
 }

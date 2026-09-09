@@ -277,14 +277,26 @@ func (s *selector) measure(size Size) {
 }
 
 // labelColumn returns the width to lay the labels out in: the longest of them,
-// capped to a share of the row.
+// capped to a share of the row where there are details to leave room for.
+//
+// The cap exists to stop one long label crowding out the column beside it, so
+// with no detail on any item there is nothing to protect and the labels may
+// have the whole row. A list of bare host aliases is the common case, and
+// clipping a name there to keep space for nothing would be the worse fault.
 func labelColumn(items []Item, cols int) int {
-	longest := 0
+	longest, detailed := 0, false
 	for _, item := range items {
 		if n := width(item.Label); n > longest {
 			longest = n
 		}
+		if item.Detail != "" {
+			detailed = true
+		}
 	}
+	if !detailed {
+		return longest
+	}
+
 	limit := cols * maxLabelShare / 100
 	if limit < 1 {
 		limit = 1

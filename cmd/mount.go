@@ -186,11 +186,15 @@ func (a *App) pickHost(ctx context.Context, cfg *config.Config) (string, error) 
 	}
 
 	resolved := sshconf.ResolveAll(ctx, aliases)
+	// The same baseline the hosts listing uses, so that a row shows a user or
+	// port only where the config sets one for that host in particular.
+	defaults, _ := sshconf.Defaults(ctx)
+
 	items := make([]ui.Item, len(aliases))
 	for i, alias := range aliases {
 		items[i] = ui.Item{Label: alias}
 		if host := resolved[alias]; host != nil {
-			items[i].Detail = host.Addr()
+			items[i].Detail = host.Describe(defaults)
 		}
 	}
 
