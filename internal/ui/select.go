@@ -34,6 +34,15 @@ const (
 // scroll the rest of the terminal away.
 const maxVisible = 10
 
+// maxLabelShare is the percentage of the row the label column may take.
+//
+// The column is sized from every item rather than the ones on screen, so that
+// it holds still while the list scrolls. Sizing it to the longest name alone
+// would then let one outlier pad every short name in the list, including on
+// screens where that outlier is nowhere in view, so it is capped here and the
+// few names past the cap are clipped instead.
+const maxLabelShare = 35
+
 // Item is one selectable row.
 type Item struct {
 	Label  string
@@ -243,6 +252,11 @@ type selector struct {
 	drawn   int
 	width   int
 	visible int
+
+	// labelWidth is the column the labels are laid out in, fixed for the whole
+	// prompt so that the detail beside them does not move while scrolling.
+	labelWidth int
+
 	out     io.Writer
 	palette Palette
 }
@@ -259,6 +273,26 @@ func (s *selector) measure(size Size) {
 	if s.visible < 1 {
 		s.visible = 1
 	}
+	s.labelWidth = labelColumn(s.items, s.width)
+}
+
+// labelColumn returns the width to lay the labels out in: the longest of them,
+// capped to a share of the row.
+func labelColumn(items []Item, cols int) int {
+	longest := 0
+	for _, item := range items {
+		if n := width(item.Label); n > longest {
+			longest = n
+		}
+	}
+	limit := cols * maxLabelShare / 100
+	if limit < 1 {
+		limit = 1
+	}
+	if longest > limit {
+		return limit
+	}
+	return longest
 }
 
 // escape consumes the remainder of an ANSI escape sequence and acts on the
@@ -341,15 +375,9 @@ func (s *selector) lines() []string {
 	out = append(out, truncate(s.title, s.width))
 	out = append(out, truncate("> "+string(s.filter), s.width))
 
-	labelWidth := 0
 	end := s.offset + s.visible
 	if end > len(s.matches) {
 		end = len(s.matches)
-	}
-	for _, idx := range s.matches[s.offset:end] {
-		if n := width(s.items[idx].Label); n > labelWidth {
-			labelWidth = n
-		}
 	}
 
 	for i := s.offset; i < end; i++ {
@@ -358,7 +386,7 @@ func (s *selector) lines() []string {
 		if i == s.cursor {
 			marker = "> "
 		}
-		out = append(out, marker+row(s.palette, item, labelWidth, s.width-len(marker)))
+		out = append(out, marker+row(s.palette, item, s.labelWidth, s.width-len(marker)))
 	}
 
 	if len(s.matches) == 0 {
@@ -381,12 +409,14 @@ func row(p Palette, item Item, labelWidth, budget int) string {
 	if budget < 1 {
 		budget = 1
 	}
-	label := truncate(item.Label, budget)
-	if item.Detail == "" {
-		return label
-	}
 	if labelWidth > budget {
 		labelWidth = budget
+	}
+	// Clipped in the middle rather than at the end, because a set of aliases
+	// sharing a long prefix is told apart only by its tails.
+	label := middleTruncate(item.Label, labelWidth)
+	if item.Detail == "" {
+		return label
 	}
 	if pad := labelWidth - width(label); pad > 0 {
 		label += strings.Repeat(" ", pad)
@@ -398,7 +428,7 @@ func row(p Palette, item Item, labelWidth, budget int) string {
 	}
 	// Dim is applied after clipping, so the escape bytes never count towards
 	// the width and the column cannot drift.
-	return label + "  " + p.Dim(truncate(item.Detail, rest))
+	return label + "  " + p.Dim(middleTruncate(item.Detail, rest))
 }
 
 // width returns how many columns s occupies.
@@ -417,8 +447,12 @@ func width(s string) int {
 	return utf8.RuneCountInString(s)
 }
 
-// truncate clips s to cols columns, marking a clipped string with a trailing
-// tilde. The parameter is not named width, which is the function above.
+// truncate clips s to cols columns, keeping the head and marking the cut with
+// an ellipsis. The parameter is not named width, which is the function above.
+//
+// Keeping the head is right for the prose lines around the list, which read
+// from the left and are still recognisable once cut. A host name goes through
+// middleTruncate instead, since names differ at their ends.
 func truncate(s string, cols int) string {
 	if cols <= 0 {
 		return ""
@@ -427,10 +461,10 @@ func truncate(s string, cols int) string {
 	if len(r) <= cols {
 		return s
 	}
-	if cols == 1 {
-		return "~"
+	if cols <= len(ellipsis) {
+		return strings.Repeat(".", cols)
 	}
-	return string(r[:cols-1]) + "~"
+	return string(r[:cols-len(ellipsis)]) + ellipsis
 }
 
 // redraw repaints in place by moving back over the rows drawn last time.

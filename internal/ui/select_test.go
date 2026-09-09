@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -110,11 +111,11 @@ func TestTruncate(t *testing.T) {
 	}{
 		{name: "fits", input: "web01", width: 10, want: "web01"},
 		{name: "exact fit", input: "web01", width: 5, want: "web01"},
-		{name: "clipped", input: "web01xyz", width: 5, want: "web0~"},
-		{name: "single column", input: "web01", width: 1, want: "~"},
+		{name: "clipped", input: "web01xyz", width: 5, want: "we..."},
+		{name: "single column", input: "web01", width: 1, want: "."},
 		{name: "no room", input: "web01", width: 0, want: ""},
 		{name: "negative width", input: "web01", width: -3, want: ""},
-		{name: "multibyte counted by rune", input: "aaaaa", width: 3, want: "aa~"},
+		{name: "multibyte counted by rune", input: "aaaaa", width: 4, want: "a..."},
 	}
 
 	for _, tc := range tests {
@@ -191,11 +192,10 @@ func TestMoveOnAnEmptyMatchList(t *testing.T) {
 func TestLinesFitTheTerminalWidth(t *testing.T) {
 	t.Parallel()
 	s := &selector{
-		title:   "Select an SSH host",
-		items:   []Item{{Label: "a-very-long-host-name-indeed", Detail: "deploy@10.0.0.4:2222"}},
-		width:   24,
-		visible: 5,
+		title: "Select an SSH host",
+		items: []Item{{Label: "a-very-long-host-name-indeed", Detail: "deploy@10.0.0.4:2222"}},
 	}
+	s.measure(Size{Width: 24, Height: 24})
 	s.refilter()
 
 	for _, line := range s.lines() {
@@ -356,5 +356,116 @@ func TestRowLeavesTheDetailPlainWithoutColour(t *testing.T) {
 	}
 	if want := "web01     10.0.0.1"; got != want {
 		t.Errorf("row() = %q, want %q", got, want)
+	}
+}
+
+// manyItems is a list long enough to scroll, with the one long label early
+// enough that it leaves the viewport before the end.
+func manyItems() []Item {
+	items := []Item{
+		{Label: "archived-box", Detail: "does not resolve"},
+		{Label: "uoa-research-compute-node-01.its.auckland.ac.nz", Detail: "tlau083@uoa-research-compute-node-01"},
+		{Label: "db-prod", Detail: "10.0.0.16"},
+	}
+	for i := 1; i <= 20; i++ {
+		items = append(items, Item{
+			Label:  fmt.Sprintf("node%02d", i),
+			Detail: fmt.Sprintf("10.0.2.%d", i),
+		})
+	}
+	return items
+}
+
+// TestLabelColumnHoldsStillWhileScrolling is the guard for sizing the column
+// from every item rather than the visible ones. Sizing it from the window made
+// the detail column jump sideways the moment the longest label scrolled out.
+func TestLabelColumnHoldsStillWhileScrolling(t *testing.T) {
+	t.Parallel()
+	s := &selector{title: "Select an SSH host", items: manyItems()}
+	s.measure(Size{Width: 80, Height: 24})
+	s.refilter()
+
+	at := func(offset int) int {
+		s.offset = offset
+		s.cursor = offset
+		for _, line := range s.lines() {
+			plain := stripANSI(line)
+			if strings.HasPrefix(plain, "  node05 ") || strings.HasPrefix(plain, "> node05 ") {
+				return strings.Index(plain, "10.0.2.5")
+			}
+		}
+		t.Fatalf("node05 was not on screen at offset %d", offset)
+		return -1
+	}
+
+	// node05 is visible in both windows, but the long label is only in the
+	// first, which is exactly when the column used to move.
+	if top, scrolled := at(0), at(6); top != scrolled {
+		t.Errorf("the detail column starts at %d near the top and %d once scrolled, want them equal", top, scrolled)
+	}
+}
+
+func TestLabelColumn(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		items []Item
+		cols  int
+		want  int
+	}{
+		{
+			name:  "the longest label when it is within the cap",
+			items: []Item{{Label: "web01"}, {Label: "db-prod"}},
+			cols:  80,
+			want:  7,
+		},
+		{
+			// 35 percent of 80. One long alias must not pad every short name
+			// beside it out to its own width.
+			name:  "capped at a share of the row",
+			items: []Item{{Label: "web01"}, {Label: strings.Repeat("x", 60)}},
+			cols:  80,
+			want:  28,
+		},
+		{
+			name:  "never narrower than a single column",
+			items: []Item{{Label: "web01"}},
+			cols:  1,
+			want:  1,
+		},
+		{
+			name:  "no items at all",
+			items: nil,
+			cols:  80,
+			want:  0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := labelColumn(tc.items, tc.cols); got != tc.want {
+				t.Errorf("labelColumn() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRowClipsALabelInTheMiddle guards the half of the fix that keeps a long
+// alias identifiable: aliases sharing a prefix differ only at their tails.
+func TestRowClipsALabelInTheMiddle(t *testing.T) {
+	t.Parallel()
+	const label = "bioinformatics-pipeline-staging-server"
+
+	got := stripANSI(row(NewPalette(false), Item{Label: label, Detail: "10.0.0.1"}, 20, 40))
+
+	if !strings.HasPrefix(got, "bio") {
+		t.Errorf("row() = %q, want the head kept", got)
+	}
+	if !strings.Contains(got, "server") {
+		t.Errorf("row() = %q, want the tail kept", got)
+	}
+	if strings.Contains(got, "~") {
+		t.Errorf("row() = %q, want no tilde, which means a home directory elsewhere", got)
 	}
 }
