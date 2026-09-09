@@ -238,8 +238,8 @@ func TestRowAlignsANonASCIILabel(t *testing.T) {
 
 	const detail = "10.0.0.1"
 	p := NewPalette(true)
-	ascii := row(p, Item{Label: "webxx", Detail: detail}, labelWidth, 40)
-	unicode := row(p, Item{Label: "w\u00e9bxx", Detail: detail}, labelWidth, 40)
+	ascii := row(p, Item{Label: "webxx", Detail: detail}, "", labelWidth, 40)
+	unicode := row(p, Item{Label: "w\u00e9bxx", Detail: detail}, "", labelWidth, 40)
 
 	want := detailColumn(t, ascii, detail)
 	if got := detailColumn(t, unicode, detail); got != want {
@@ -349,7 +349,7 @@ func TestRowLeavesTheDetailPlainWithoutColour(t *testing.T) {
 	t.Parallel()
 	item := Item{Label: "web01", Detail: "10.0.0.1"}
 
-	got := row(NewPalette(false), item, 8, 40)
+	got := row(NewPalette(false), item, "", 8, 40)
 
 	if strings.Contains(got, "\x1b") {
 		t.Errorf("row() = %q, want no escape sequences", got)
@@ -471,7 +471,7 @@ func TestRowClipsALabelInTheMiddle(t *testing.T) {
 	t.Parallel()
 	const label = "bioinformatics-pipeline-staging-server"
 
-	got := stripANSI(row(NewPalette(false), Item{Label: label, Detail: "10.0.0.1"}, 20, 40))
+	got := stripANSI(row(NewPalette(false), Item{Label: label, Detail: "10.0.0.1"}, "", 20, 40))
 
 	if !strings.HasPrefix(got, "bio") {
 		t.Errorf("row() = %q, want the head kept", got)
@@ -554,12 +554,69 @@ func TestRowKeepsACrampedDetail(t *testing.T) {
 	item := Item{Label: "web01", Detail: "deploy@10.0.0.15:2222"}
 
 	for _, budget := range []int{9, 10, 11, 12, 20} {
-		got := stripANSI(row(NewPalette(false), item, 5, budget))
+		got := stripANSI(row(NewPalette(false), item, "", 5, budget))
 		if !strings.Contains(got, ".") {
 			t.Errorf("row at budget %d = %q, want some of the detail or an ellipsis", budget, got)
 		}
 		if width(got) > budget {
 			t.Errorf("row at budget %d = %q, which is %d columns", budget, got, width(got))
 		}
+	}
+}
+
+func TestHighlight(t *testing.T) {
+	t.Parallel()
+	const b, r = "\x1b[1m", "\x1b[0m"
+	p := NewPalette(true)
+	tests := []struct {
+		name    string
+		text    string
+		pattern string
+		want    string
+	}{
+		{name: "no pattern leaves the text alone", text: "web01", pattern: "", want: "web01"},
+		{name: "a prefix is one run", text: "web01", pattern: "web", want: b + "web" + r + "01"},
+		{name: "case is ignored", text: "Web01", pattern: "web", want: b + "Web" + r + "01"},
+		// The subsequence case, which is the one a reader cannot otherwise
+		// explain: three scattered letters, each picked out where it matched.
+		{
+			name:    "a subsequence marks each run separately",
+			text:    "bio-pipe-staging",
+			pattern: "bps",
+			want:    b + "b" + r + "io-" + b + "p" + r + "ipe-" + b + "s" + r + "taging",
+		},
+		{name: "consecutive matches coalesce", text: "abcdef", pattern: "abc", want: b + "abc" + r + "def"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := highlight(p, tc.text, tc.pattern); got != tc.want {
+				t.Errorf("highlight(%q, %q) = %q, want %q", tc.text, tc.pattern, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestHighlightWithoutColour keeps a piped or NO_COLOR run byte for byte what
+// it was before, since the highlight is the only reason to rewrite the label.
+func TestHighlightWithoutColour(t *testing.T) {
+	t.Parallel()
+	if got := highlight(NewPalette(false), "web01", "web"); got != "web01" {
+		t.Errorf("highlight() = %q, want the text unchanged", got)
+	}
+}
+
+// TestRowHighlightDoesNotMoveTheDetail is the guard for measuring widths on the
+// plain label: escape bytes must not count towards the column.
+func TestRowHighlightDoesNotMoveTheDetail(t *testing.T) {
+	t.Parallel()
+	item := Item{Label: "web01", Detail: "10.0.0.15"}
+
+	plain := stripANSI(row(NewPalette(true), item, "", 12, 40))
+	marked := stripANSI(row(NewPalette(true), item, "web", 12, 40))
+
+	if plain != marked {
+		t.Errorf("with a filter the row reads %q, want %q as without one", marked, plain)
 	}
 }

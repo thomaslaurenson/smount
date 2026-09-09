@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/term"
@@ -400,7 +401,7 @@ func (s *selector) lines() []string {
 		if i == s.cursor {
 			marker = "> "
 		}
-		out = append(out, marker+row(s.palette, item, s.labelWidth, s.width-len(marker)))
+		out = append(out, marker+row(s.palette, item, string(s.filter), s.labelWidth, s.width-len(marker)))
 	}
 
 	if len(s.matches) == 0 {
@@ -419,7 +420,7 @@ func (s *selector) lines() []string {
 
 // row renders one item, giving the label a fixed column so that details line up
 // and clipping each part to the space actually available.
-func row(p Palette, item Item, labelWidth, budget int) string {
+func row(p Palette, item Item, pattern string, labelWidth, budget int) string {
 	if budget < 1 {
 		budget = 1
 	}
@@ -429,24 +430,64 @@ func row(p Palette, item Item, labelWidth, budget int) string {
 	// Clipped in the middle rather than at the end, because a set of aliases
 	// sharing a long prefix is told apart only by its tails.
 	label := middleTruncate(item.Label, labelWidth)
+	// Every width below is measured on the plain label and the styling applied
+	// last, so the escape bytes never count towards a column.
+	shown := highlight(p, label, pattern)
 	if item.Detail == "" {
-		return label
-	}
-	if pad := labelWidth - width(label); pad > 0 {
-		label += strings.Repeat(" ", pad)
+		return shown
 	}
 
+	pad := ""
+	if n := labelWidth - width(label); n > 0 {
+		pad = strings.Repeat(" ", n)
+	}
 	// Anything at all is rendered rather than nothing, down to a bare
 	// ellipsis. A blank detail means the item has nothing worth adding, so a
 	// detail dropped for want of room would claim that about an item which
 	// does have something to say.
-	rest := budget - width(label) - 2
+	rest := budget - labelWidth - 2
 	if rest < 1 {
-		return label
+		return shown
 	}
-	// Dim is applied after clipping, so the escape bytes never count towards
-	// the width and the column cannot drift.
-	return label + "  " + p.Dim(middleTruncate(item.Detail, rest))
+	return shown + pad + "  " + p.Dim(middleTruncate(item.Detail, rest))
+}
+
+// highlight emboldens the runes of pattern within text, matched in order and
+// ignoring case.
+//
+// It runs against the text as it will appear, after any clipping, so a
+// highlight can never land on a character the row does not show, and no
+// position has to be mapped back through the truncation.
+//
+// Matching in order rather than as one substring is what makes a subsequence
+// hit readable: typing "bps" leaves the three letters it matched picked out of
+// a long alias, instead of a row that appears to have matched nothing.
+func highlight(p Palette, text, pattern string) string {
+	if pattern == "" || !p.enabled {
+		return text
+	}
+
+	want := []rune(strings.ToLower(pattern))
+	at := 0
+	var b strings.Builder
+	var run []rune
+	flush := func() {
+		if len(run) > 0 {
+			b.WriteString(p.Bold(string(run)))
+			run = run[:0]
+		}
+	}
+	for _, r := range text {
+		if at < len(want) && unicode.ToLower(r) == want[at] {
+			run = append(run, r)
+			at++
+			continue
+		}
+		flush()
+		b.WriteRune(r)
+	}
+	flush()
+	return b.String()
 }
 
 // width returns how many columns s occupies.

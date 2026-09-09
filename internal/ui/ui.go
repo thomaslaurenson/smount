@@ -209,6 +209,12 @@ func NewPalette(enabled bool) Palette {
 	return Palette{enabled: enabled}
 }
 
+// Bold renders text worth picking out of a line, such as the characters a
+// filter matched.
+func (p Palette) Bold(s string) string {
+	return p.wrap("1", s)
+}
+
 // Dim renders secondary text, such as the detail beside a menu label.
 func (p Palette) Dim(s string) string {
 	return p.wrap("2", s)
