@@ -194,7 +194,6 @@ func TestParseResolved(t *testing.T) {
 		"user deploy\n" +
 		"port 2222\n" +
 		"identityfile ~/.ssh/id_ed25519\n" +
-		"identityfile ~/.ssh/id_rsa\n" +
 		"forwardagent no\n")
 
 	got := parseResolved("web01", out)
@@ -203,7 +202,6 @@ func TestParseResolved(t *testing.T) {
 		HostName: "10.0.0.4",
 		User:     "deploy",
 		Port:     "2222",
-		Identity: "~/.ssh/id_ed25519",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseResolved() = %+v, want %+v", got, want)
@@ -215,29 +213,6 @@ func TestParseResolvedDefaultsHostName(t *testing.T) {
 	got := parseResolved("web01", []byte("user deploy\n"))
 	if got.HostName != "web01" {
 		t.Errorf("HostName = %q, want %q", got.HostName, "web01")
-	}
-}
-
-func TestHostAddr(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		host Host
-		want string
-	}{
-		{name: "user and host", host: Host{HostName: "h", User: "u", Port: "22"}, want: "u@h"},
-		{name: "non default port", host: Host{HostName: "h", User: "u", Port: "2222"}, want: "u@h:2222"},
-		{name: "no user", host: Host{HostName: "h", Port: "22"}, want: "h"},
-		{name: "no port", host: Host{HostName: "h", User: "u"}, want: "u@h"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := tc.host.Addr(); got != tc.want {
-				t.Errorf("Addr() = %q, want %q", got, tc.want)
-			}
-		})
 	}
 }
 

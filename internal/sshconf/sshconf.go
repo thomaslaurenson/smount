@@ -89,19 +89,6 @@ type Host struct {
 	HostName string
 	User     string
 	Port     string
-	Identity string
-}
-
-// Addr returns the user@host:port form of the resolved settings, for display.
-func (h *Host) Addr() string {
-	addr := h.HostName
-	if h.User != "" {
-		addr = h.User + "@" + addr
-	}
-	if h.Port != "" && h.Port != defaultPort {
-		addr += ":" + h.Port
-	}
-	return addr
 }
 
 // defaultPort is the port ssh uses when a config names none, and so the one
@@ -517,12 +504,6 @@ func parseResolved(alias string, out []byte) *Host {
 			h.User = value
 		case "port":
 			h.Port = value
-		case "identityfile":
-			// ssh prints every candidate identity in precedence order, so the
-			// first is the one it would offer first.
-			if h.Identity == "" {
-				h.Identity = value
-			}
 		}
 	}
 	if h.HostName == "" {
