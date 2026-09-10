@@ -449,11 +449,27 @@ func row(p Palette, item Item, pattern string, labelWidth, budget int) string {
 	if rest < 1 {
 		return shown
 	}
-	return shown + pad + "  " + p.Dim(middleTruncate(item.Detail, rest))
+	// The detail is searched as well as the label, so it is marked as well.
+	// A row that matched on the address beside its name would otherwise show
+	// nothing to say why it is in the list.
+	return shown + pad + "  " + highlightDim(p, middleTruncate(item.Detail, rest), pattern)
 }
 
-// highlight emboldens the runes of pattern within text, matched in order and
-// ignoring case.
+// highlight emboldens the runes of pattern within text, leaving the rest of it
+// plain. It is the label's form of marking a match.
+func highlight(p Palette, text, pattern string) string {
+	return highlightRuns(p, text, pattern, func(s string) string { return s })
+}
+
+// highlightDim is highlight for text that is otherwise dimmed, so that the
+// runes which matched stand out of the detail rather than being dimmed along
+// with it.
+func highlightDim(p Palette, text, pattern string) string {
+	return highlightRuns(p, text, pattern, p.Dim)
+}
+
+// highlightRuns emboldens the runes of pattern within text, matched in order
+// and ignoring case, rendering everything else through rest.
 //
 // It runs against the text as it will appear, after any clipping, so a
 // highlight can never land on a character the row does not show, and no
@@ -462,31 +478,51 @@ func row(p Palette, item Item, pattern string, labelWidth, budget int) string {
 // Matching in order rather than as one substring is what makes a subsequence
 // hit readable: typing "bps" leaves the three letters it matched picked out of
 // a long alias, instead of a row that appears to have matched nothing.
-func highlight(p Palette, text, pattern string) string {
+//
+// Text that does not hold the whole pattern is left unmarked. A row can be in
+// the list because its detail matched, or because a part of its label was
+// clipped away, and marking the runes found here would then point at
+// characters that had nothing to do with it.
+//
+// Each run is styled on its own rather than nested inside a style wrapped
+// around the whole string, because a bold run ends by resetting every
+// attribute and would take the surrounding style off with it.
+func highlightRuns(p Palette, text, pattern string, rest func(string) string) string {
 	if pattern == "" || !p.enabled {
-		return text
+		return rest(text)
 	}
 
 	want := []rune(strings.ToLower(pattern))
 	at := 0
 	var b strings.Builder
-	var run []rune
-	flush := func() {
+	var run, plain []rune
+	flushRun := func() {
 		if len(run) > 0 {
 			b.WriteString(p.Bold(string(run)))
 			run = run[:0]
 		}
 	}
+	flushPlain := func() {
+		if len(plain) > 0 {
+			b.WriteString(rest(string(plain)))
+			plain = plain[:0]
+		}
+	}
 	for _, r := range text {
 		if at < len(want) && unicode.ToLower(r) == want[at] {
+			flushPlain()
 			run = append(run, r)
 			at++
 			continue
 		}
-		flush()
-		b.WriteRune(r)
+		flushRun()
+		plain = append(plain, r)
 	}
-	flush()
+	if at < len(want) {
+		return rest(text)
+	}
+	flushRun()
+	flushPlain()
 	return b.String()
 }
 

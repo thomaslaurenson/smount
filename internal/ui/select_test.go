@@ -586,6 +586,11 @@ func TestHighlight(t *testing.T) {
 			want:    b + "b" + r + "io-" + b + "p" + r + "ipe-" + b + "s" + r + "taging",
 		},
 		{name: "consecutive matches coalesce", text: "abcdef", pattern: "abc", want: b + "abc" + r + "def"},
+		// The case that put a bold character on a row for no reason: the text
+		// holds part of the pattern and not the rest of it, which is what a
+		// clipped label and a detail match both look like from here.
+		{name: "a partial match marks nothing", text: "bio-pipe-server", pattern: "staging", want: "bio-pipe-server"},
+		{name: "a pattern longer than the text marks nothing", text: "web", pattern: "web01", want: "web"},
 	}
 
 	for _, tc := range tests {
@@ -604,6 +609,71 @@ func TestHighlightWithoutColour(t *testing.T) {
 	t.Parallel()
 	if got := highlight(NewPalette(false), "web01", "web"); got != "web01" {
 		t.Errorf("highlight() = %q, want the text unchanged", got)
+	}
+}
+
+// TestHighlightDim keeps the detail readable as one dimmed run with the match
+// standing out of it. A bold run resets every attribute, so the dim has to be
+// reopened after one rather than wrapped around the lot.
+func TestHighlightDim(t *testing.T) {
+	t.Parallel()
+	const bold, dim, reset = "\x1b[1m", "\x1b[2m", "\x1b[0m"
+	p := NewPalette(true)
+
+	tests := []struct {
+		name    string
+		text    string
+		pattern string
+		want    string
+	}{
+		{
+			name:    "no pattern dims the whole detail",
+			text:    "10.0.0.15",
+			pattern: "",
+			want:    dim + "10.0.0.15" + reset,
+		},
+		{
+			name:    "a match is bold and the rest stays dim",
+			text:    "deploy@10.0.0.15",
+			pattern: "deploy",
+			want:    bold + "deploy" + reset + dim + "@10.0.0.15" + reset,
+		},
+		{
+			name:    "a partial match leaves the detail plainly dim",
+			text:    "deploy@10.0.0.15",
+			pattern: "zzz",
+			want:    dim + "deploy@10.0.0.15" + reset,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := highlightDim(p, tc.text, tc.pattern); got != tc.want {
+				t.Errorf("highlightDim(%q, %q) = %q, want %q", tc.text, tc.pattern, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRowMarksTheDetailItMatched is the guard for a row that is in the list
+// because of its detail. Marking the label instead points at characters that
+// had nothing to do with the match.
+func TestRowMarksTheDetailItMatched(t *testing.T) {
+	t.Parallel()
+	item := Item{Label: "jump-box", Detail: "deploy@10.0.0.15"}
+
+	got := row(NewPalette(true), item, "deploy", 10, 40)
+
+	label, detail, found := strings.Cut(got, "  ")
+	if !found {
+		t.Fatalf("row() = %q, want a label and a detail", got)
+	}
+	if strings.Contains(label, "\x1b[1m") {
+		t.Errorf("label = %q, want nothing marked in it", label)
+	}
+	if !strings.Contains(detail, "\x1b[1m"+"deploy") {
+		t.Errorf("detail = %q, want the matched text marked", detail)
 	}
 }
 
