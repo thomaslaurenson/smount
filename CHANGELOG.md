@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 - 2026-09-10
+
+### Added
+
+- Add a color flag, honouring NO_COLOR and whether the stream is a terminal
+- Add a short flag to ls for printing bare mount names
+- Write the default config file on first run
+
+### Changed
+
+- Fit the host and mount listings to the terminal, clipping long names in the middle
+- Leave out cells and columns that only repeat what another column already says
+- Cut the mount summary to the lines that say something new
+- Hold the interactive menu columns still while scrolling
+- Search and highlight the menu detail column when filtering
+- Use one marker vocabulary for every message, replacing the check specific pair
+- Rename the hosts quiet flag to short, matching the new ls flag
+
+### Removed
+
+- Remove the identity column from the host listing
+
 ## 0.3.0 - 2026-09-08
 
 ### Removed
