@@ -4,7 +4,7 @@
 
 ![Release Version](https://img.shields.io/github/v/release/thomaslaurenson/smount?style=flat&logo=github) ![Release downloads](https://img.shields.io/github/downloads/thomaslaurenson/smount/total?label=downloads&logo=github)
 
-![Go Version](https://img.shields.io/github/go-mod/go-version/thomaslaurenson/smount?logo=go) ![Code Coverage](https://img.shields.io/badge/Coverage-90.1%25-blue?logo=go)
+![Go Version](https://img.shields.io/github/go-mod/go-version/thomaslaurenson/smount?logo=go) ![Code Coverage](https://img.shields.io/badge/Coverage-91.3%25-blue?logo=go)
 
 Mount remote directories over SSH, using `sshfs` and the hosts already in your ssh config.
 
