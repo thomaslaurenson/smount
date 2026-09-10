@@ -161,12 +161,16 @@ const (
 var ErrColourMode = errors.New("must be auto, always or never")
 
 // ParseColourMode reads the value given to --color.
+//
+// The error names the modes but not the value that was rejected, because the
+// caller is the flag itself and the flag package already quotes what it was
+// given. Repeating it here would print it twice in one message.
 func ParseColourMode(s string) (ColourMode, error) {
 	switch mode := ColourMode(s); mode {
 	case ColourAuto, ColourAlways, ColourNever:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("%q: %w", s, ErrColourMode)
+		return "", ErrColourMode
 	}
 }
 

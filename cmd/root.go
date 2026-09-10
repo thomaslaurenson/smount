@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 
@@ -64,8 +63,9 @@ type App struct {
 	in   *os.File
 	errw io.Writer
 
-	// colour is the --color flag, as typed.
-	colour string
+	// colour is the --color flag. Its type refuses anything but a mode, so by
+	// the time a command runs the value has already been checked.
+	colour colourFlag
 
 	// mounts reads the active sshfs mounts.
 	//
@@ -81,29 +81,50 @@ type App struct {
 	tableWidth int
 }
 
+// colourFlag holds the --color mode and refuses anything else.
+//
+// Validating in the flag rather than in a pre-run hook is what makes every
+// subcommand refuse a bad mode. version overrides the root's persistent hook,
+// as the scaffolding calls for, so a check that lived there would be the one
+// command that quietly accepted "--color beige".
+type colourFlag struct{ mode ui.ColourMode }
+
+// String returns the mode as typed, which is what the help text shows as the
+// default.
+func (c *colourFlag) String() string { return string(c.mode) }
+
+// Set is called by the flag package while the command line is parsed.
+func (c *colourFlag) Set(s string) error {
+	mode, err := ui.ParseColourMode(s)
+	if err != nil {
+		return err
+	}
+	c.mode = mode
+	return nil
+}
+
+// Type names the value in the usage line, so the help lists the modes rather
+// than saying "string".
+func (c *colourFlag) Type() string { return "auto|always|never" }
+
 // buildUI settles what cmd knows about the streams and hands it to the UI.
 //
-// This runs from the root's PersistentPreRunE rather than from NewRootCmd
+// This runs from the root's PersistentPreRun rather than from NewRootCmd
 // because --color is one of its inputs, and a flag has no value until cobra
 // has parsed the command line.
 //
 // os.Stderr is asked directly because every question here is about the
 // process: a prompt is drawn on the real error stream or not at all, whatever
 // errw is wrapped in.
-func (a *App) buildUI() error {
-	mode, err := ui.ParseColourMode(a.colour)
-	if err != nil {
-		return fmt.Errorf("--color %w", err)
-	}
+func (a *App) buildUI() {
 	a.tableWidth = ui.TerminalWidth(os.Stdout)
 	a.ui = ui.New(
 		a.in,
 		a.errw,
 		ui.IsTerminal(a.in, os.Stderr),
 		ui.TerminalSize(os.Stderr),
-		ui.NewPalette(ui.ResolveColour(mode, os.Getenv("NO_COLOR") != "", os.Stderr)),
+		ui.NewPalette(ui.ResolveColour(a.colour.mode, os.Getenv("NO_COLOR") != "", os.Stderr)),
 	)
-	return nil
 }
 
 // loadConfig reads the settings, writing the defaults out when no file exists.
@@ -154,6 +175,7 @@ func newApp(home string, in *os.File, errw io.Writer) *App {
 		home:   tilde.Home(home),
 		in:     in,
 		errw:   errw,
+		colour: colourFlag{mode: ui.ColourAuto},
 		mounts: mount.Active,
 	}
 }
@@ -172,8 +194,8 @@ func (a *App) rootCmd(out io.Writer) *cobra.Command {
 		SilenceUsage:      true,
 		Version:           Version,
 		ValidArgsFunction: a.completeTargets,
-		PersistentPreRunE: func(*cobra.Command, []string) error {
-			return a.buildUI()
+		PersistentPreRun: func(*cobra.Command, []string) {
+			a.buildUI()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runMount(cmd, opts, args)
@@ -182,7 +204,7 @@ func (a *App) rootCmd(out io.Writer) *cobra.Command {
 	root.SetIn(a.in)
 	root.SetOut(out)
 	root.SetErr(a.errw)
-	root.PersistentFlags().StringVar(&a.colour, "color", string(ui.ColourAuto),
+	root.PersistentFlags().Var(&a.colour, "color",
 		"when to colour output: auto, always or never")
 	opts.register(root)
 

@@ -90,3 +90,22 @@ func TestVersionCommand(t *testing.T) {
 		t.Errorf("stdout = %q, want it to carry %q", stdout, Version)
 	}
 }
+
+// version is the one command that overrides the root's persistent hook, so it
+// is the command a flag checked in that hook would quietly accept. The check
+// lives in the flag's own type instead, and this is the guard for that.
+func TestVersionRejectsAnUnknownColourMode(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	stdout, _, err := run(t, home, "version", "--color", "beige")
+	if err == nil {
+		t.Fatal("--color beige was accepted by version, want an error")
+	}
+	if !strings.Contains(err.Error(), "--color") {
+		t.Errorf("error = %v, want it to name the flag", err)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want no version printed on a failure", stdout)
+	}
+}
