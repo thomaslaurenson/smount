@@ -11,6 +11,12 @@ import (
 	"github.com/thomaslaurenson/smount/internal/config"
 )
 
+// twoFavourites is the favourites file writeHome writes when a test needs saved
+// targets, one naming a remote path and one taking the remote home directory.
+const twoFavourites = `{"version":1,"favourites":[` +
+	`{"name":"logs","host":"web01","path":"/var/log"},` +
+	`{"name":"backup","host":"db-prod"}]}`
+
 // writeHome builds a home directory holding an ssh config with two hosts, plus
 // a favourites file when favs is not empty.
 func writeHome(t *testing.T, favs string) string {
@@ -239,5 +245,25 @@ func TestAnExistingConfigIsNotOverwritten(t *testing.T) {
 	}
 	if string(data) != edited {
 		t.Errorf("config = %q, want the edited file left exactly as it was", data)
+	}
+}
+
+// TestRootMountsAFavouriteByName is the reason favourites exist: "smount <name>"
+// has to resolve the favourite rather than a host of the same name.
+func TestRootMountsAFavouriteByName(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, twoFavourites)
+
+	stdout, _, err := run(t, home, "logs", "--dry-run")
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if !strings.Contains(stdout, "web01:/var/log") {
+		t.Errorf("stdout = %q, want the favourite's target", stdout)
+	}
+	// A favourite mounts under its own name, which is what lets two of them
+	// point at one machine.
+	if !strings.Contains(stdout, "sshfs/logs") {
+		t.Errorf("stdout = %q, want the mount point named after the favourite", stdout)
 	}
 }
