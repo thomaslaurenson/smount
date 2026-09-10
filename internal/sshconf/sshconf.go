@@ -108,32 +108,27 @@ func (h *Host) Addr() string {
 // worth saying nothing about.
 const defaultPort = "22"
 
-// defaultsProbe is the alias Defaults asks about.
+// defaultsProbe is the alias ResolveAll asks about to learn the baseline: the
+// settings ssh applies to a host with nothing configured for it.
 //
-// It ends in .invalid, which RFC 2606 reserves and no real host can use, so a
-// config naming it is close to impossible. A "Host *" block still matches it,
-// which is the point: the answer has to include whatever applies to every
+// The baseline is what separates a setting worth printing from one the whole
+// config shares. ssh reports a user and a port for every host whether the
+// config names them or not, so with nothing to compare against, a listing
+// repeats the same two values on every row.
+//
+// The name ends in .invalid, which RFC 2606 reserves and no real host can use,
+// so a config naming it is close to impossible. A "Host *" block still matches
+// it, which is the point: the answer has to include whatever applies to every
 // host, since that is exactly what is not worth printing per host.
+//
+// Only User and Port are meaningful in what comes back. The HostName is the
+// probe itself and says nothing about any real host.
 const defaultsProbe = "smount-defaults.invalid"
-
-// Defaults returns the settings ssh applies to a host with nothing configured
-// for it.
-//
-// This is what separates a setting worth printing from one the whole config
-// shares. ssh reports a user and a port for every host whether the config
-// names them or not, so with nothing to compare against, a listing repeats the
-// same two values on every row.
-//
-// Only User and Port are meaningful in the result. The HostName it reports is
-// the probe itself and says nothing about any real host.
-func Defaults(ctx context.Context) (*Host, error) {
-	return Resolve(ctx, defaultsProbe)
-}
 
 // Describe renders what ssh resolved that the alias does not already say,
 // returning the empty string when it says nothing new.
 //
-// defaults comes from Defaults and is what ssh applies to a host configured
+// defaults comes from ResolveAll and is what ssh applies to a host configured
 // nowhere. A user or port matching it is left out, because ssh reports both
 // for every host and a value the whole config shares tells the reader nothing
 // about this one. A nil defaults leaves the user in, which is the right way to
@@ -437,18 +432,41 @@ func Resolve(ctx context.Context, alias string) (*Host, error) {
 	return parseResolved(alias, out), nil
 }
 
-// ResolveAll resolves every alias concurrently, keyed by alias.
+// ResolveAll resolves every alias concurrently, keyed by alias, along with the
+// baseline every one of them is measured against.
 //
 // Aliases that fail are omitted rather than reported. This exists to decorate a
 // list of hosts with where each one actually points, and a host whose config
-// ssh will not read is still a host worth showing by name.
-func ResolveAll(ctx context.Context, aliases []string) map[string]*Host {
+// ssh will not read is still a host worth showing by name. A baseline that
+// fails comes back nil, which Describe reads as nothing to compare against.
+func ResolveAll(ctx context.Context, aliases []string) (map[string]*Host, *Host) {
 	var (
-		mu      sync.Mutex
-		wg      sync.WaitGroup
-		results = make(map[string]*Host, len(aliases))
-		work    = make(chan string)
+		mu       sync.Mutex
+		wg       sync.WaitGroup
+		results  = make(map[string]*Host, len(aliases))
+		work     = make(chan string)
+		defaults *Host
 	)
+
+	// The baseline runs beside the aliases rather than after them. It is one
+	// more "ssh -G" and depends on none of them, so taking its turn would add
+	// its whole wait to a listing that had already finished.
+	//
+	// It is kept out of the pool's queue rather than sent through as one more
+	// alias, because a config is free to define a host of the probe's own
+	// name, and lifting the baseline back out of the results would then take
+	// that host off the listing.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		host, err := Resolve(ctx, defaultsProbe)
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		defaults = host
+		mu.Unlock()
+	}()
 
 	workers := resolveWorkers(len(aliases))
 	for i := 0; i < workers; i++ {
@@ -473,14 +491,14 @@ func ResolveAll(ctx context.Context, aliases []string) map[string]*Host {
 			// map is returned with whatever was resolved before the interrupt.
 			close(work)
 			wg.Wait()
-			return results
+			return results, defaults
 		case work <- alias:
 		}
 	}
 	close(work)
 	wg.Wait()
 
-	return results
+	return results, defaults
 }
 
 // parseResolved reads the "keyword value" lines that ssh -G prints.

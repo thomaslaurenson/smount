@@ -49,10 +49,9 @@ func (a *App) newHostsCmd() *cobra.Command {
 				return nil
 			}
 
-			resolved := sshconf.ResolveAll(cmd.Context(), aliases)
 			// A baseline that will not resolve is not worth failing the listing
 			// over. A nil one simply leaves every setting in.
-			defaults, _ := sshconf.Defaults(cmd.Context())
+			resolved, defaults := sshconf.ResolveAll(cmd.Context(), aliases)
 
 			rows := make([][]string, 0, len(aliases))
 			for _, alias := range aliases {

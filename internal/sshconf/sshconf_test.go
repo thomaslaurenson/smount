@@ -401,14 +401,44 @@ func TestResolveAllFinishesWhenEveryHostStalls(t *testing.T) {
 	}
 
 	start := time.Now()
-	got := ResolveAll(t.Context(), aliases)
+	got, defaults := ResolveAll(t.Context(), aliases)
 	elapsed := time.Since(start)
 
 	if len(got) != 0 {
 		t.Errorf("ResolveAll() resolved %d hosts, want none", len(got))
 	}
+	if defaults != nil {
+		t.Errorf("ResolveAll() baseline = %+v, want nil when the probe stalls too", defaults)
+	}
 	if elapsed > ResolveTimeout*3 {
 		t.Errorf("ResolveAll() took %v, want it bounded near %v", elapsed, ResolveTimeout)
+	}
+}
+
+// TestResolveAllRunsTheBaselineBesideTheHosts is the guard for the baseline
+// overlapping rather than queueing. Run in turn its wait is added to a listing
+// that has already finished, which doubles the wall clock of a config whose
+// hosts are slow to resolve.
+func TestResolveAllRunsTheBaselineBesideTheHosts(t *testing.T) {
+	stubSSH(t, "1")
+
+	start := time.Now()
+	got, defaults := ResolveAll(t.Context(), []string{"web01", "db-prod"})
+	elapsed := time.Since(start)
+
+	if len(got) != 2 {
+		t.Errorf("ResolveAll() resolved %d hosts, want 2", len(got))
+	}
+	if defaults == nil {
+		t.Fatal("ResolveAll() baseline = nil, want the probe resolved")
+	}
+	if defaults.HostName != "stub.example" {
+		t.Errorf("baseline HostName = %q, want %q", defaults.HostName, "stub.example")
+	}
+	// Two seconds is the sequential cost of one second of hosts followed by
+	// one second of baseline. Anything near it means they did not overlap.
+	if elapsed > 1900*time.Millisecond {
+		t.Errorf("ResolveAll() took %v, want the baseline resolved alongside the hosts", elapsed)
 	}
 }
 

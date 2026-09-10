@@ -94,14 +94,14 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 	}
 
 	// A host ssh cannot resolve is still worth trying to mount, since sshfs
-	// gives a better diagnostic for it than anything reconstructed here.
-	host, err := sshconf.Resolve(cmd.Context(), spec.Host)
-	if err != nil {
-		host = nil
-	}
-	// The baseline the listings compare against, so the summary only mentions
-	// a resolved address where ssh really sends the connection elsewhere.
-	defaults, _ := sshconf.Defaults(cmd.Context())
+	// gives a better diagnostic for it than anything reconstructed here, so an
+	// alias that failed is simply absent from the map.
+	//
+	// The baseline comes back with it, and is what the listings compare
+	// against, so the summary only mentions a resolved address where ssh
+	// really sends the connection elsewhere.
+	resolved, defaults := sshconf.ResolveAll(cmd.Context(), []string{spec.Host})
+	host := resolved[spec.Host]
 	summarise(cmd.ErrOrStderr(), a.home, spec, host, defaults, cfg.Options)
 
 	if o.dryRun {
@@ -188,10 +188,9 @@ func (a *App) pickHost(ctx context.Context, cfg *config.Config) (string, error) 
 		return "", fmt.Errorf("no hosts found in %s", cfg.SSHConfig)
 	}
 
-	resolved := sshconf.ResolveAll(ctx, aliases)
 	// The same baseline the hosts listing uses, so that a row shows a user or
 	// port only where the config sets one for that host in particular.
-	defaults, _ := sshconf.Defaults(ctx)
+	resolved, defaults := sshconf.ResolveAll(ctx, aliases)
 
 	items := make([]ui.Item, len(aliases))
 	for i, alias := range aliases {
