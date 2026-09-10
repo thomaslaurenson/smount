@@ -1,9 +1,6 @@
-// Package ui renders the interactive prompts smount falls back to when it is
-// run without enough arguments to act on its own.
-//
-// Everything is drawn on the error stream rather than stdout, so that the
-// output of a command remains usable in a pipe even when smount had to ask a
-// question to produce it.
+// Package ui renders what smount puts in front of a person: the prompts it
+// falls back to when run without enough arguments to act on its own, and the
+// markers, colour and table layout the rest of its output is written with.
 package ui
 
 import (
