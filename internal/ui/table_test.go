@@ -22,7 +22,13 @@ func TestMiddleTruncate(t *testing.T) {
 		{name: "no room at all", input: "web01", cols: 0, want: ""},
 		{name: "negative", input: "web01", cols: -3, want: ""},
 		// Counted in characters, so an accent costs one column and not two.
-		{name: "multibyte counted by rune", input: "ééééééééé", cols: 7, want: "éé...éé"},
+		// Written as escapes because the source stays ASCII.
+		{
+			name:  "multibyte counted by rune",
+			input: strings.Repeat("\u00e9", 9),
+			cols:  7,
+			want:  "\u00e9\u00e9...\u00e9\u00e9",
+		},
 	}
 
 	for _, tc := range tests {
