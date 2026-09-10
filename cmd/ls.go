@@ -31,7 +31,7 @@ func (a *App) newLsCmd() *cobra.Command {
 			if len(mounts) == 0 {
 				// Noted on stderr, so that a run with nothing mounted leaves
 				// stdout empty rather than leaving a consumer a line to parse.
-				fmt.Fprintln(cmd.ErrOrStderr(), "[*] no active sshfs mounts")
+				a.ui.Infof("no active sshfs mounts")
 				return nil
 			}
 

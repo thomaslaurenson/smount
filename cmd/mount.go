@@ -245,7 +245,7 @@ func (a *App) pickPath(ctx context.Context) (string, error) {
 // before answering a yes or no question, and a block whose lines are the same
 // on every run stops being read at all.
 func summarise(out io.Writer, home tilde.Home, spec mount.Spec, host, defaults *sshconf.Host, baseline []string) {
-	fmt.Fprintln(out, "[*] Mount summary:")
+	fmt.Fprintln(out, ui.MarkInfo+" Mount summary:")
 	fmt.Fprintf(out, "      Source:      %s\n", sourceLine(spec))
 	fmt.Fprintf(out, "      Mount point: %s\n", home.Collapse(spec.Target))
 	if host != nil {

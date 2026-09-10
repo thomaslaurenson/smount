@@ -36,8 +36,7 @@ func (a *App) newHostsCmd() *cobra.Command {
 				// stdout empty rather than leaving a consumer a header to
 				// parse. The file is named because an empty listing usually
 				// means smount is reading a different one than expected.
-				fmt.Fprintf(cmd.ErrOrStderr(), "[*] no hosts in %s\n",
-					a.home.Collapse(cfg.SSHConfigPath()))
+				a.ui.Infof("no hosts in %s", a.home.Collapse(cfg.SSHConfigPath()))
 				return nil
 			}
 
