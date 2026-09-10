@@ -32,6 +32,15 @@ func (a *App) newHostsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if len(aliases) == 0 {
+				// Noted on stderr, so that a config naming no host leaves
+				// stdout empty rather than leaving a consumer a header to
+				// parse. The file is named because an empty listing usually
+				// means smount is reading a different one than expected.
+				fmt.Fprintf(cmd.ErrOrStderr(), "[*] no hosts in %s\n",
+					a.home.Collapse(cfg.SSHConfigPath()))
+				return nil
+			}
 
 			if short {
 				for _, alias := range aliases {

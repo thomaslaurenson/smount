@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -65,5 +67,47 @@ func TestHostsReportsAMissingConfig(t *testing.T) {
 	}
 	if stdout != "" {
 		t.Errorf("stdout = %q, want nothing written on a failure", stdout)
+	}
+}
+
+// TestHostsWithNoAliases guards the stream contract for an empty listing. A
+// header with nothing under it is a line a consumer has to read and discard,
+// which is why the mount listing notes its own empty case on stderr.
+func TestHostsWithNoAliases(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("creating %s: %v", sshDir, err)
+	}
+	// A wildcard block configures connections without naming one to connect
+	// to, so the listing omits it and is left with nothing to print.
+	ssh := "Host *\n  ServerAliveInterval 30\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(ssh), 0o600); err != nil {
+		t.Fatalf("writing ssh config: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "the table form", args: []string{"hosts"}},
+		{name: "the short form", args: []string{"hosts", "--short"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			stdout, stderr, err := run(t, home, tc.args...)
+			if err != nil {
+				t.Fatalf("run(%v) error = %v", tc.args, err)
+			}
+			if stdout != "" {
+				t.Errorf("stdout = %q, want nothing written", stdout)
+			}
+			if !strings.Contains(stderr, "no hosts") {
+				t.Errorf("stderr = %q, want the empty case noted on it", stderr)
+			}
+		})
 	}
 }
