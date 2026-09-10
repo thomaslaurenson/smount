@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/term"
@@ -33,6 +34,15 @@ const (
 // maxVisible caps how many matches are listed at once, so a long list does not
 // scroll the rest of the terminal away.
 const maxVisible = 10
+
+// maxLabelShare is the percentage of the row the label column may take.
+//
+// The column is sized from every item rather than the ones on screen, so that
+// it holds still while the list scrolls. Sizing it to the longest name alone
+// would then let one outlier pad every short name in the list, including on
+// screens where that outlier is nowhere in view, so it is capped here and the
+// few names past the cap are clipped instead.
+const maxLabelShare = 35
 
 // Item is one selectable row.
 type Item struct {
@@ -61,11 +71,12 @@ func (u *UI) Select(ctx context.Context, title string, items []Item) (int, error
 	defer func() { _ = term.Restore(u.fd, state) }()
 
 	s := &selector{
-		title: title,
-		items: items,
-		out:   u.out,
+		title:   title,
+		items:   items,
+		out:     u.out,
+		palette: u.palette,
 	}
-	s.measure(u.fd)
+	s.measure(u.size)
 	s.refilter()
 	defer s.clear()
 
@@ -242,26 +253,59 @@ type selector struct {
 	drawn   int
 	width   int
 	visible int
+
+	// labelWidth is the column the labels are laid out in, fixed for the whole
+	// prompt so that the detail beside them does not move while scrolling.
+	labelWidth int
+
 	out     io.Writer
+	palette Palette
 }
 
-// measure reads the terminal size, falling back to a conservative default when
-// it cannot be determined, such as when stderr is a pipe.
-func (s *selector) measure(fd int) {
-	width, height, err := term.GetSize(fd)
-	if err != nil || width <= 0 {
-		width, height = 80, 24
-	}
-	s.width = width
+// measure fits the list to the terminal geometry it was handed.
+func (s *selector) measure(size Size) {
+	s.width = size.Width
 	s.visible = maxVisible
 	// Three lines of chrome plus one spare, so the list never pushes its own
 	// title off the top of a short window.
-	if room := height - 4; room < s.visible {
+	if room := size.Height - 4; room < s.visible {
 		s.visible = room
 	}
 	if s.visible < 1 {
 		s.visible = 1
 	}
+	s.labelWidth = labelColumn(s.items, s.width)
+}
+
+// labelColumn returns the width to lay the labels out in: the longest of them,
+// capped to a share of the row where there are details to leave room for.
+//
+// The cap exists to stop one long label crowding out the column beside it, so
+// with no detail on any item there is nothing to protect and the labels may
+// have the whole row. A list of bare host aliases is the common case, and
+// clipping a name there to keep space for nothing would be the worse fault.
+func labelColumn(items []Item, cols int) int {
+	longest, detailed := 0, false
+	for _, item := range items {
+		if n := width(item.Label); n > longest {
+			longest = n
+		}
+		if item.Detail != "" {
+			detailed = true
+		}
+	}
+	if !detailed {
+		return longest
+	}
+
+	limit := cols * maxLabelShare / 100
+	if limit < 1 {
+		limit = 1
+	}
+	if longest > limit {
+		return limit
+	}
+	return longest
 }
 
 // escape consumes the remainder of an ANSI escape sequence and acts on the
@@ -324,7 +368,7 @@ func (s *selector) refilter() {
 
 	var hits []scored
 	for i, item := range s.items {
-		if score, ok := match(item.Label, pattern); ok {
+		if score, ok := itemScore(item, pattern); ok {
 			hits = append(hits, scored{index: i, score: score})
 		}
 	}
@@ -341,18 +385,14 @@ func (s *selector) refilter() {
 // lines renders the current state as the exact rows to print.
 func (s *selector) lines() []string {
 	out := make([]string, 0, s.visible+3)
-	out = append(out, truncate(s.title, s.width))
+	// The title is the question the list is asking, so it carries the same
+	// marker a typed prompt does.
+	out = append(out, truncate(markQuestion+" "+s.title, s.width))
 	out = append(out, truncate("> "+string(s.filter), s.width))
 
-	labelWidth := 0
 	end := s.offset + s.visible
 	if end > len(s.matches) {
 		end = len(s.matches)
-	}
-	for _, idx := range s.matches[s.offset:end] {
-		if n := width(s.items[idx].Label); n > labelWidth {
-			labelWidth = n
-		}
 	}
 
 	for i := s.offset; i < end; i++ {
@@ -361,7 +401,7 @@ func (s *selector) lines() []string {
 		if i == s.cursor {
 			marker = "> "
 		}
-		out = append(out, marker+row(item, labelWidth, s.width-len(marker)))
+		out = append(out, marker+row(s.palette, item, string(s.filter), s.labelWidth, s.width-len(marker)))
 	}
 
 	if len(s.matches) == 0 {
@@ -380,28 +420,110 @@ func (s *selector) lines() []string {
 
 // row renders one item, giving the label a fixed column so that details line up
 // and clipping each part to the space actually available.
-func row(item Item, labelWidth, budget int) string {
+func row(p Palette, item Item, pattern string, labelWidth, budget int) string {
 	if budget < 1 {
 		budget = 1
-	}
-	label := truncate(item.Label, budget)
-	if item.Detail == "" {
-		return label
 	}
 	if labelWidth > budget {
 		labelWidth = budget
 	}
-	if pad := labelWidth - width(label); pad > 0 {
-		label += strings.Repeat(" ", pad)
+	// Clipped in the middle rather than at the end, because a set of aliases
+	// sharing a long prefix is told apart only by its tails.
+	label := middleTruncate(item.Label, labelWidth)
+	// Every width below is measured on the plain label and the styling applied
+	// last, so the escape bytes never count towards a column.
+	shown := highlight(p, label, pattern)
+	if item.Detail == "" {
+		return shown
 	}
 
-	rest := budget - width(label) - 2
-	if rest < 4 {
-		return label
+	pad := ""
+	if n := labelWidth - width(label); n > 0 {
+		pad = strings.Repeat(" ", n)
 	}
-	// Dim is applied after clipping, so the escape bytes never count towards
-	// the width and the column cannot drift.
-	return label + "  \x1b[2m" + truncate(item.Detail, rest) + "\x1b[0m"
+	// Anything at all is rendered rather than nothing, down to a bare
+	// ellipsis. A blank detail means the item has nothing worth adding, so a
+	// detail dropped for want of room would claim that about an item which
+	// does have something to say.
+	rest := budget - labelWidth - 2
+	if rest < 1 {
+		return shown
+	}
+	// The detail is searched as well as the label, so it is marked as well.
+	// A row that matched on the address beside its name would otherwise show
+	// nothing to say why it is in the list.
+	return shown + pad + "  " + highlightDim(p, middleTruncate(item.Detail, rest), pattern)
+}
+
+// highlight emboldens the runes of pattern within text, leaving the rest of it
+// plain. It is the label's form of marking a match.
+func highlight(p Palette, text, pattern string) string {
+	return highlightRuns(p, text, pattern, func(s string) string { return s })
+}
+
+// highlightDim is highlight for text that is otherwise dimmed, so that the
+// runes which matched stand out of the detail rather than being dimmed along
+// with it.
+func highlightDim(p Palette, text, pattern string) string {
+	return highlightRuns(p, text, pattern, p.Dim)
+}
+
+// highlightRuns emboldens the runes of pattern within text, matched in order
+// and ignoring case, rendering everything else through rest.
+//
+// It runs against the text as it will appear, after any clipping, so a
+// highlight can never land on a character the row does not show, and no
+// position has to be mapped back through the truncation.
+//
+// Matching in order rather than as one substring is what makes a subsequence
+// hit readable: typing "bps" leaves the three letters it matched picked out of
+// a long alias, instead of a row that appears to have matched nothing.
+//
+// Text that does not hold the whole pattern is left unmarked. A row can be in
+// the list because its detail matched, or because a part of its label was
+// clipped away, and marking the runes found here would then point at
+// characters that had nothing to do with it.
+//
+// Each run is styled on its own rather than nested inside a style wrapped
+// around the whole string, because a bold run ends by resetting every
+// attribute and would take the surrounding style off with it.
+func highlightRuns(p Palette, text, pattern string, rest func(string) string) string {
+	if pattern == "" || !p.enabled {
+		return rest(text)
+	}
+
+	want := []rune(strings.ToLower(pattern))
+	at := 0
+	var b strings.Builder
+	var run, plain []rune
+	flushRun := func() {
+		if len(run) > 0 {
+			b.WriteString(p.Bold(string(run)))
+			run = run[:0]
+		}
+	}
+	flushPlain := func() {
+		if len(plain) > 0 {
+			b.WriteString(rest(string(plain)))
+			plain = plain[:0]
+		}
+	}
+	for _, r := range text {
+		if at < len(want) && unicode.ToLower(r) == want[at] {
+			flushPlain()
+			run = append(run, r)
+			at++
+			continue
+		}
+		flushRun()
+		plain = append(plain, r)
+	}
+	if at < len(want) {
+		return rest(text)
+	}
+	flushRun()
+	flushPlain()
+	return b.String()
 }
 
 // width returns how many columns s occupies.
@@ -420,8 +542,12 @@ func width(s string) int {
 	return utf8.RuneCountInString(s)
 }
 
-// truncate clips s to cols columns, marking a clipped string with a trailing
-// tilde. The parameter is not named width, which is the function above.
+// truncate clips s to cols columns, keeping the head and marking the cut with
+// an ellipsis. The parameter is not named width, which is the function above.
+//
+// Keeping the head is right for the prose lines around the list, which read
+// from the left and are still recognisable once cut. A host name goes through
+// middleTruncate instead, since names differ at their ends.
 func truncate(s string, cols int) string {
 	if cols <= 0 {
 		return ""
@@ -430,10 +556,10 @@ func truncate(s string, cols int) string {
 	if len(r) <= cols {
 		return s
 	}
-	if cols == 1 {
-		return "~"
+	if cols <= len(ellipsis) {
+		return strings.Repeat(".", cols)
 	}
-	return string(r[:cols-1]) + "~"
+	return string(r[:cols-len(ellipsis)]) + ellipsis
 }
 
 // redraw repaints in place by moving back over the rows drawn last time.
@@ -475,6 +601,31 @@ func (s *selector) clear() {
 	fmt.Fprintf(&b, "\x1b[%dA", s.drawn)
 	s.drawn = 0
 	fmt.Fprint(s.out, b.String())
+}
+
+// detailPenalty puts every detail match below every label match.
+//
+// It only has to clear the worst score a label can produce, which is the
+// subsequence band at 10000 plus the spread across the label.
+const detailPenalty = 1_000_000
+
+// itemScore scores pattern against one item, preferring its label.
+//
+// The detail is searched as well because it is on screen. A row reading
+// "web01  deploy@10.0.0.15:2222" that cannot be found by typing the address
+// sitting beside it makes the filter look broken.
+//
+// A detail match ranks below every label match rather than competing with one,
+// so typing a name never buries the host it names under hosts that merely
+// mention it.
+func itemScore(item Item, pattern string) (int, bool) {
+	if score, ok := match(item.Label, pattern); ok {
+		return score, true
+	}
+	if score, ok := match(item.Detail, pattern); ok {
+		return detailPenalty + score, true
+	}
+	return 0, false
 }
 
 // match scores pattern against text, reporting whether it matches at all.

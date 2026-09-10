@@ -40,6 +40,7 @@ func takeKey(t *testing.T, s *keySource, what string) rune {
 // the confirmation prompt, or to the passphrase prompt ssh draws once sshfs
 // starts.
 func TestPromptsDoNotTakeEachOthersInput(t *testing.T) {
+	t.Parallel()
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +84,7 @@ func TestPromptsDoNotTakeEachOthersInput(t *testing.T) {
 // A closed source must not start another read, so that the descriptor is free
 // for whatever smount hands it to next.
 func TestClosedKeySourceLeavesTheStreamAlone(t *testing.T) {
+	t.Parallel()
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -119,6 +121,7 @@ func TestClosedKeySourceLeavesTheStreamAlone(t *testing.T) {
 // A cancelled context has to end the wait even though the terminal read behind
 // it cannot be interrupted.
 func TestKeySourceNextHonoursCancellation(t *testing.T) {
+	t.Parallel()
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -151,6 +154,7 @@ func TestKeySourceNextHonoursCancellation(t *testing.T) {
 // A reader that reaches EOF must report it rather than leave a prompt waiting
 // on a request nothing will take.
 func TestKeySourceReportsAClosedStream(t *testing.T) {
+	t.Parallel()
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)

@@ -2,11 +2,20 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/thomaslaurenson/smount/internal/config"
 )
+
+// twoFavourites is the favourites file writeHome writes when a test needs saved
+// targets, one naming a remote path and one taking the remote home directory.
+const twoFavourites = `{"version":1,"favourites":[` +
+	`{"name":"logs","host":"web01","path":"/var/log"},` +
+	`{"name":"backup","host":"db-prod"}]}`
 
 // writeHome builds a home directory holding an ssh config with two hosts, plus
 // a favourites file when favs is not empty.
@@ -164,5 +173,97 @@ func TestRootSummaryStaysOffStdout(t *testing.T) {
 	}
 	if lines := strings.Count(strings.TrimSpace(stdout), "\n"); lines != 0 {
 		t.Errorf("stdout = %q, want the sshfs command line and nothing else", stdout)
+	}
+}
+
+func TestRootRejectsAnUnknownColourMode(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	_, _, err := run(t, home, "ls", "--color", "beige")
+
+	if err == nil {
+		t.Fatal("--color beige was accepted, want an error")
+	}
+	if !strings.Contains(err.Error(), "--color") {
+		t.Errorf("error = %v, want it to name the flag", err)
+	}
+}
+
+// TestFirstRunWritesTheConfigFile is the reason the defaults are written out at
+// all: changing the mount base or the option baseline needs a file to edit, and
+// one that has to be invented from the README is one nobody finds.
+func TestFirstRunWritesTheConfigFile(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	if _, _, err := run(t, home, "hosts"); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, config.DirName, "config.json"))
+	if err != nil {
+		t.Fatalf("reading the written config: %v", err)
+	}
+	var got config.Config
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("the written config does not parse: %v", err)
+	}
+	if got.MountBase != config.DefaultMountBase {
+		t.Errorf("mount_base = %q, want %q", got.MountBase, config.DefaultMountBase)
+	}
+	if got.SSHConfig != config.DefaultSSHConfig {
+		t.Errorf("ssh_config = %q, want %q", got.SSHConfig, config.DefaultSSHConfig)
+	}
+	if len(got.Options) == 0 {
+		t.Error("the written config names no mount options, so there is nothing to edit")
+	}
+}
+
+// An edited config has to survive the next run. Writing the defaults over one
+// would throw away the settings the file exists to hold.
+func TestAnExistingConfigIsNotOverwritten(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	path := filepath.Join(home, config.DirName, "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("creating %s: %v", filepath.Dir(path), err)
+	}
+	edited := `{"mount_base":"~/elsewhere"}` + "\n"
+	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
+		t.Fatalf("writing the config: %v", err)
+	}
+
+	if _, _, err := run(t, home, "hosts"); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the config back: %v", err)
+	}
+	if string(data) != edited {
+		t.Errorf("config = %q, want the edited file left exactly as it was", data)
+	}
+}
+
+// TestRootMountsAFavouriteByName is the reason favourites exist: "smount <name>"
+// has to resolve the favourite rather than a host of the same name.
+func TestRootMountsAFavouriteByName(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, twoFavourites)
+
+	stdout, _, err := run(t, home, "logs", "--dry-run")
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if !strings.Contains(stdout, "web01:/var/log") {
+		t.Errorf("stdout = %q, want the favourite's target", stdout)
+	}
+	// A favourite mounts under its own name, which is what lets two of them
+	// point at one machine.
+	if !strings.Contains(stdout, "sshfs/logs") {
+		t.Errorf("stdout = %q, want the mount point named after the favourite", stdout)
 	}
 }

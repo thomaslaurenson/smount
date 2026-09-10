@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/thomaslaurenson/smount/internal/config"
 	"github.com/thomaslaurenson/smount/internal/mount"
 	"github.com/thomaslaurenson/smount/internal/ui"
 )
@@ -33,11 +32,11 @@ func (a *App) newUmountCmd() *cobra.Command {
 }
 
 func (a *App) runUmount(ctx context.Context, args []string, all, force bool) error {
-	cfg, err := config.Load(a.home)
+	cfg, err := a.loadConfig()
 	if err != nil {
 		return err
 	}
-	mounts, err := mount.Active(ctx)
+	mounts, err := a.mounts(ctx)
 	if err != nil {
 		return err
 	}

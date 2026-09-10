@@ -4,7 +4,7 @@
 
 ![Release Version](https://img.shields.io/github/v/release/thomaslaurenson/smount?style=flat&logo=github) ![Release downloads](https://img.shields.io/github/downloads/thomaslaurenson/smount/total?label=downloads&logo=github)
 
-![Go Version](https://img.shields.io/github/go-mod/go-version/thomaslaurenson/smount?logo=go) ![Code Coverage](https://img.shields.io/badge/Coverage-90.1%25-blue?logo=go)
+![Go Version](https://img.shields.io/github/go-mod/go-version/thomaslaurenson/smount?logo=go) ![Code Coverage](https://img.shields.io/badge/Coverage-91.3%25-blue?logo=go)
 
 Mount remote directories over SSH, using `sshfs` and the hosts already in your ssh config.
 
@@ -35,11 +35,13 @@ Install from source:
 go install github.com/thomaslaurenson/smount@latest
 ```
 
-`sshfs` is a separate system package. `smount check` reports whether it is present:
+`sshfs` is a separate system package:
 
 ```sh
 sudo apt install sshfs
 ```
+
+Run `smount check` to confirm it, and everything else smount needs, is in place.
 
 ## Usage
 
@@ -55,10 +57,12 @@ smount umount            # unmount interactively
 smount umount web01_www  # unmount by name
 smount umount --all      # unmount all
 
-smount ls           # list active mounts
-smount hosts        # list the SSH hosts smount can see
-smount check        # check the local environment
-smount version      # print the version
+smount ls             # list active mounts
+smount ls --short     # list active mount names only
+smount hosts          # list the SSH hosts smount can see
+smount hosts --short  # list host names only
+smount check          # check the local environment
+smount version        # print the version
 
 smount completion bash | sudo tee /etc/bash_completion.d/smount
 ```
@@ -67,16 +71,31 @@ Completion offers favourite names, host aliases and active mount names.
 
 ### Flags
 
+`--color` is the only flag every subcommand takes. Only `auto` looks at the stream and at `NO_COLOR`.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--color` | When to colour output: `auto`, `always` or `never` | `auto` |
+
+The flags that shape a mount go on the bare invocation, `smount [target]`, so `smount ls --ro` is an unknown flag rather than a quiet no-op.
+
 | Flag | Description | Default |
 |---|---|---|
 | `--at` | Mount point to use instead of the derived one | |
-| `--opt`, `-o` | Additional sshfs option (repeatable) | |
+| `--opt`, `-o` | Additional sshfs option, repeatable | |
 | `--ro` | Mount read only | `false` |
 | `--yes`, `-y` | Skip the confirmation prompt | `false` |
 | `--dry-run` | Print the sshfs command instead of running it | `false` |
 | `--no-save` | Do not offer to save the mount as a favourite | `false` |
 
-`smount umount` takes `--all` to unmount everything, and `--force` to lazily unmount a dropped connection. `smount hosts` takes `--quiet` to print host names without resolving them.
+The rest belong to one subcommand each, and are all off unless given.
+
+| Command | Flag | Description |
+|---|---|---|
+| `umount` | `--all` | Unmount every active sshfs mount |
+| `umount` | `--force`, `-f` | Unmount lazily, which is what clears a mount whose connection has dropped |
+| `ls` | `--short`, `-s` | Print mount names only, without the table |
+| `hosts` | `--short`, `-s` | Print host names only, without resolving them |
 
 A favourite is saved from a mount rather than declared: once an ad hoc mount succeeds, smount offers to keep it, and the `--at`, `--opt` and `--ro` that mount used are saved with it. Favourites can also be written straight into `favourites.json`.
 
@@ -112,7 +131,9 @@ Both files live in `~/.smount` and are created on demand. The `config.json` file
 
 `reconnect` is paired with the two `ServerAlive` options deliberately. Without them ssh never notices a dropped link, so `reconnect` has no failure to react to and the mount hangs instead of recovering.
 
-`compression=yes` is not a default. Above roughly 10 Mbit it costs more CPU time than it saves in transfer time, so add it only for a slow or metered link. The `favourites.json` file holds the saved targets:
+`compression=yes` is not a default. Above roughly 10 Mbit it costs more CPU time than it saves in transfer time, so add it only for a slow or metered link.
+
+The `favourites.json` file holds the saved targets:
 
 ```json
 {

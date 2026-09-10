@@ -115,16 +115,39 @@ func Load(home tilde.Home) (*Config, error) {
 }
 
 // Save writes the configuration file, creating the directory if needed.
+//
+// The file is written under a temporary name and renamed into place, which is
+// one step as far as any reader is concerned. Two smount processes starting at
+// once in a fresh home both write the defaults, and writing in place would let
+// one of them read the other's half-written file and fail to parse it.
 func Save(c *Config) error {
-	if _, err := Dir(c.Home); err != nil {
+	dir, err := Dir(c.Home)
+	if err != nil {
 		return err
 	}
-	path := Path(c.Home)
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o600)
+
+	tmp, err := os.CreateTemp(dir, configFilename+".*")
+	if err != nil {
+		return err
+	}
+	// Removed on every path that does not rename it away, so a write that
+	// failed part way leaves nothing behind for the next run to trip over.
+	defer func() { _ = os.Remove(tmp.Name()) }()
+
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	// Closed before the rename rather than deferred: a buffered write can still
+	// fail here, and renaming first would publish a file that never landed.
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), Path(c.Home))
 }
 
 // MountBaseDir returns the mount base as an absolute path.

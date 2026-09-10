@@ -84,6 +84,11 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the smount version",
 		Args:  cobra.NoArgs,
+		// The root builds the UI in its PersistentPreRun, which version has no
+		// use for: it prints one line and never prompts or styles anything.
+		// Skipping it costs no checking, since --color validates itself as the
+		// command line is parsed.
+		PersistentPreRun: func(*cobra.Command, []string) {},
 		Run: func(cmd *cobra.Command, _ []string) {
 			fmt.Fprintf(cmd.OutOrStdout(), "smount version %s\n", Version)
 		},

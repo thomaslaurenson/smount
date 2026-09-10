@@ -13,6 +13,7 @@ import (
 	"github.com/thomaslaurenson/smount/internal/mount"
 	"github.com/thomaslaurenson/smount/internal/sshconf"
 	"github.com/thomaslaurenson/smount/internal/tilde"
+	"github.com/thomaslaurenson/smount/internal/ui"
 )
 
 func (a *App) newCheckCmd() *cobra.Command {
@@ -21,7 +22,7 @@ func (a *App) newCheckCmd() *cobra.Command {
 		Short: "Check that everything smount needs is present and working",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCheck(cmd.Context(), cmd.OutOrStdout(), a.home)
+			return a.runCheck(cmd.Context(), cmd.OutOrStdout())
 		},
 	}
 }
@@ -36,21 +37,25 @@ type result struct {
 // runCheck reports on the environment and fails only when something would stop
 // a mount from working. A missing favourites file or an empty mount base are
 // normal on a new install, so they are reported without failing.
-func runCheck(ctx context.Context, out io.Writer, home tilde.Home) error {
+func (a *App) runCheck(ctx context.Context, out io.Writer) error {
+	home := a.home
 	var checks []result
 
 	checks = append(checks, binaryCheck("sshfs", "required to mount anything"))
 	checks = append(checks, binaryCheck("ssh", "required to resolve host settings"))
 	checks = append(checks, unmountToolCheck())
 
-	cfg, err := config.Load(home)
+	cfg, err := a.loadConfig()
 	if err != nil {
 		checks = append(checks, result{name: "config", detail: err.Error(), failed: true})
 		cfg = config.Defaults(home)
 	} else {
-		source := "defaults, no file written yet"
-		if config.Exists(home) {
-			source = home.Collapse(config.Path(home))
+		// loadConfig writes the file when it is absent, so it is still missing
+		// here only because that write failed, which it has already warned
+		// about. The report says which settings are in force either way.
+		source := home.Collapse(config.Path(home))
+		if !config.Exists(home) {
+			source = "defaults, " + source + " could not be written"
 		}
 		checks = append(checks, result{name: "config", detail: source})
 	}
@@ -59,19 +64,44 @@ func runCheck(ctx context.Context, out io.Writer, home tilde.Home) error {
 	checks = append(checks, mountBaseCheck(home, cfg))
 	checks = append(checks, mountsCheck(ctx)...)
 
+	// Sized from the names actually printed. A fixed column silently misaligns
+	// the whole report the first time a check with a longer name is added.
+	names := nameColumn(checks)
+
 	failed := 0
 	for _, c := range checks {
-		marker := "[ok]"
+		marker := ui.MarkInfo
 		if c.failed {
-			marker = "[!!]"
+			marker = ui.MarkWarn
 			failed++
 		}
-		fmt.Fprintf(out, "%s %-14s %s\n", marker, c.name, c.detail)
+		fmt.Fprintln(out, c.line(marker, names))
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d check(s) failed", failed)
 	}
 	return nil
+}
+
+// line renders one check as it is printed.
+//
+// The detail is left to run over a narrow terminal rather than being clipped.
+// It is usually a path or an error to act on, and half of one is worse than a
+// wrapped line.
+func (c result) line(marker string, names int) string {
+	return fmt.Sprintf("%s %-*s %s", marker, names, c.name, c.detail)
+}
+
+// nameColumn returns the width the name column needs. Names are written in
+// this file and are ASCII, so counting bytes is counting characters.
+func nameColumn(checks []result) int {
+	widest := 0
+	for _, c := range checks {
+		if n := len(c.name); n > widest {
+			widest = n
+		}
+	}
+	return widest
 }
 
 func binaryCheck(name, why string) result {

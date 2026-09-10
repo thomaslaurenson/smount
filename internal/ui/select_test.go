@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -110,11 +111,11 @@ func TestTruncate(t *testing.T) {
 	}{
 		{name: "fits", input: "web01", width: 10, want: "web01"},
 		{name: "exact fit", input: "web01", width: 5, want: "web01"},
-		{name: "clipped", input: "web01xyz", width: 5, want: "web0~"},
-		{name: "single column", input: "web01", width: 1, want: "~"},
+		{name: "clipped", input: "web01xyz", width: 5, want: "we..."},
+		{name: "single column", input: "web01", width: 1, want: "."},
 		{name: "no room", input: "web01", width: 0, want: ""},
 		{name: "negative width", input: "web01", width: -3, want: ""},
-		{name: "multibyte counted by rune", input: "aaaaa", width: 3, want: "aa~"},
+		{name: "multibyte counted by rune", input: "aaaaa", width: 4, want: "a..."},
 	}
 
 	for _, tc := range tests {
@@ -191,11 +192,10 @@ func TestMoveOnAnEmptyMatchList(t *testing.T) {
 func TestLinesFitTheTerminalWidth(t *testing.T) {
 	t.Parallel()
 	s := &selector{
-		title:   "Select an SSH host",
-		items:   []Item{{Label: "a-very-long-host-name-indeed", Detail: "deploy@10.0.0.4:2222"}},
-		width:   24,
-		visible: 5,
+		title: "Select an SSH host",
+		items: []Item{{Label: "a-very-long-host-name-indeed", Detail: "deploy@10.0.0.4:2222"}},
 	}
+	s.measure(Size{Width: 24, Height: 24})
 	s.refilter()
 
 	for _, line := range s.lines() {
@@ -237,8 +237,9 @@ func TestRowAlignsANonASCIILabel(t *testing.T) {
 	const labelWidth = 8
 
 	const detail = "10.0.0.1"
-	ascii := row(Item{Label: "webxx", Detail: detail}, labelWidth, 40)
-	unicode := row(Item{Label: "w\u00e9bxx", Detail: detail}, labelWidth, 40)
+	p := NewPalette(true)
+	ascii := row(p, Item{Label: "webxx", Detail: detail}, "", labelWidth, 40)
+	unicode := row(p, Item{Label: "w\u00e9bxx", Detail: detail}, "", labelWidth, 40)
 
 	want := detailColumn(t, ascii, detail)
 	if got := detailColumn(t, unicode, detail); got != want {
@@ -306,5 +307,386 @@ func TestStripANSI(t *testing.T) {
 				t.Errorf("stripANSI(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestMeasureFitsTheList(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		size        Size
+		wantWidth   int
+		wantVisible int
+	}{
+		{name: "a roomy window caps at maxVisible", size: Size{Width: 80, Height: 24}, wantWidth: 80, wantVisible: maxVisible},
+		{name: "a short window leaves room for the chrome", size: Size{Width: 80, Height: 8}, wantWidth: 80, wantVisible: 4},
+		// A window with no room left still has to draw one row, or there is
+		// nothing to put the cursor on.
+		{name: "a window with no room still shows one row", size: Size{Width: 40, Height: 4}, wantWidth: 40, wantVisible: 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := &selector{}
+
+			s.measure(tc.size)
+
+			if s.width != tc.wantWidth {
+				t.Errorf("width = %d, want %d", s.width, tc.wantWidth)
+			}
+			if s.visible != tc.wantVisible {
+				t.Errorf("visible = %d, want %d", s.visible, tc.wantVisible)
+			}
+		})
+	}
+}
+
+// TestRowLeavesTheDetailPlainWithoutColour is the guard for a piped or
+// NO_COLOR run: the detail is the only styled part of a row, so it is where a
+// palette that was ignored would show up.
+func TestRowLeavesTheDetailPlainWithoutColour(t *testing.T) {
+	t.Parallel()
+	item := Item{Label: "web01", Detail: "10.0.0.1"}
+
+	got := row(NewPalette(false), item, "", 8, 40)
+
+	if strings.Contains(got, "\x1b") {
+		t.Errorf("row() = %q, want no escape sequences", got)
+	}
+	if want := "web01     10.0.0.1"; got != want {
+		t.Errorf("row() = %q, want %q", got, want)
+	}
+}
+
+// manyItems is a list long enough to scroll, with the one long label early
+// enough that it leaves the viewport before the end.
+func manyItems() []Item {
+	items := []Item{
+		{Label: "archived-box", Detail: "does not resolve"},
+		{Label: "uoa-research-compute-node-01.its.auckland.ac.nz", Detail: "tlau083@uoa-research-compute-node-01"},
+		{Label: "db-prod", Detail: "10.0.0.16"},
+	}
+	for i := 1; i <= 20; i++ {
+		items = append(items, Item{
+			Label:  fmt.Sprintf("node%02d", i),
+			Detail: fmt.Sprintf("10.0.2.%d", i),
+		})
+	}
+	return items
+}
+
+// TestLabelColumnHoldsStillWhileScrolling is the guard for sizing the column
+// from every item rather than the visible ones. Sizing it from the window made
+// the detail column jump sideways the moment the longest label scrolled out.
+func TestLabelColumnHoldsStillWhileScrolling(t *testing.T) {
+	t.Parallel()
+	s := &selector{title: "Select an SSH host", items: manyItems()}
+	s.measure(Size{Width: 80, Height: 24})
+	s.refilter()
+
+	at := func(offset int) int {
+		s.offset = offset
+		s.cursor = offset
+		for _, line := range s.lines() {
+			plain := stripANSI(line)
+			if strings.HasPrefix(plain, "  node05 ") || strings.HasPrefix(plain, "> node05 ") {
+				return strings.Index(plain, "10.0.2.5")
+			}
+		}
+		t.Fatalf("node05 was not on screen at offset %d", offset)
+		return -1
+	}
+
+	// node05 is visible in both windows, but the long label is only in the
+	// first, which is exactly when the column used to move.
+	if top, scrolled := at(0), at(6); top != scrolled {
+		t.Errorf("the detail column starts at %d near the top and %d once scrolled, want them equal", top, scrolled)
+	}
+}
+
+func TestLabelColumn(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		items []Item
+		cols  int
+		want  int
+	}{
+		{
+			name:  "the longest label when it is within the cap",
+			items: []Item{{Label: "web01", Detail: "a"}, {Label: "db-prod", Detail: "b"}},
+			cols:  80,
+			want:  7,
+		},
+		{
+			// 35 percent of 80. One long alias must not pad every short name
+			// beside it out to its own width.
+			name:  "capped at a share of the row",
+			items: []Item{{Label: "web01", Detail: "a"}, {Label: strings.Repeat("x", 60), Detail: "b"}},
+			cols:  80,
+			want:  28,
+		},
+		{
+			// With no detail anywhere there is nothing to keep room for, so a
+			// long alias is not clipped to protect an empty column.
+			name:  "no details means no cap",
+			items: []Item{{Label: strings.Repeat("x", 60)}},
+			cols:  80,
+			want:  60,
+		},
+		{
+			name:  "one detail is enough to bring the cap back",
+			items: []Item{{Label: strings.Repeat("x", 60)}, {Label: "web01", Detail: "10.0.0.1"}},
+			cols:  80,
+			want:  28,
+		},
+		{
+			name:  "never narrower than a single column",
+			items: []Item{{Label: "web01", Detail: "d"}},
+			cols:  1,
+			want:  1,
+		},
+		{
+			name:  "no items at all",
+			items: nil,
+			cols:  80,
+			want:  0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := labelColumn(tc.items, tc.cols); got != tc.want {
+				t.Errorf("labelColumn() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRowClipsALabelInTheMiddle guards the half of the fix that keeps a long
+// alias identifiable: aliases sharing a prefix differ only at their tails.
+func TestRowClipsALabelInTheMiddle(t *testing.T) {
+	t.Parallel()
+	const label = "bioinformatics-pipeline-staging-server"
+
+	got := stripANSI(row(NewPalette(false), Item{Label: label, Detail: "10.0.0.1"}, "", 20, 40))
+
+	if !strings.HasPrefix(got, "bio") {
+		t.Errorf("row() = %q, want the head kept", got)
+	}
+	if !strings.Contains(got, "server") {
+		t.Errorf("row() = %q, want the tail kept", got)
+	}
+	if strings.Contains(got, "~") {
+		t.Errorf("row() = %q, want no tilde, which means a home directory elsewhere", got)
+	}
+}
+
+func TestItemScoreSearchesTheDetail(t *testing.T) {
+	t.Parallel()
+	item := Item{Label: "web01", Detail: "deploy@10.0.0.15:2222"}
+	tests := []struct {
+		name    string
+		pattern string
+		want    bool
+	}{
+		{name: "the label", pattern: "web", want: true},
+		{name: "the address in the detail", pattern: "10.0.0.15", want: true},
+		{name: "the user in the detail", pattern: "deploy", want: true},
+		{name: "the port in the detail", pattern: "2222", want: true},
+		{name: "neither", pattern: "zzz", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := itemScore(item, tc.pattern); ok != tc.want {
+				t.Errorf("itemScore(%q) matched = %v, want %v", tc.pattern, ok, tc.want)
+			}
+		})
+	}
+}
+
+// TestItemScoreWithNoDetail guards the common case after a listing suppresses
+// settings the whole config shares: most items carry no detail at all.
+func TestItemScoreWithNoDetail(t *testing.T) {
+	t.Parallel()
+	if _, ok := itemScore(Item{Label: "web01"}, "zzz"); ok {
+		t.Error("itemScore() matched an item with no detail, want no match")
+	}
+	if _, ok := itemScore(Item{Label: "web01"}, ""); !ok {
+		t.Error("itemScore() did not match on an empty pattern, want every item to match")
+	}
+}
+
+// TestRefilterRanksLabelMatchesFirst is the guard for the penalty. Typing a
+// host's name must not bury it under hosts that merely mention it.
+func TestRefilterRanksLabelMatchesFirst(t *testing.T) {
+	t.Parallel()
+	s := &selector{
+		items: []Item{
+			{Label: "jump-box", Detail: "web01.example.net"},
+			{Label: "gateway", Detail: "web01-backup.example.net"},
+			{Label: "web01", Detail: "10.0.0.15"},
+		},
+	}
+
+	s.filter = []rune("web01")
+	s.refilter()
+
+	if len(s.matches) != 3 {
+		t.Fatalf("matches = %v, want all three items", s.matches)
+	}
+	// Index 2 is the only label match, so it has to come first even though the
+	// other two match their details at the very start.
+	if s.matches[0] != 2 {
+		t.Errorf("first match = %d, want the item whose label matched (2)", s.matches[0])
+	}
+}
+
+// TestRowKeepsACrampedDetail guards the meaning of a blank detail. Elsewhere it
+// says the item has nothing to add, so a row must not render one that way for
+// want of room.
+func TestRowKeepsACrampedDetail(t *testing.T) {
+	t.Parallel()
+	item := Item{Label: "web01", Detail: "deploy@10.0.0.15:2222"}
+
+	for _, budget := range []int{9, 10, 11, 12, 20} {
+		got := stripANSI(row(NewPalette(false), item, "", 5, budget))
+		if !strings.Contains(got, ".") {
+			t.Errorf("row at budget %d = %q, want some of the detail or an ellipsis", budget, got)
+		}
+		if width(got) > budget {
+			t.Errorf("row at budget %d = %q, which is %d columns", budget, got, width(got))
+		}
+	}
+}
+
+func TestHighlight(t *testing.T) {
+	t.Parallel()
+	const b, r = "\x1b[1m", "\x1b[0m"
+	p := NewPalette(true)
+	tests := []struct {
+		name    string
+		text    string
+		pattern string
+		want    string
+	}{
+		{name: "no pattern leaves the text alone", text: "web01", pattern: "", want: "web01"},
+		{name: "a prefix is one run", text: "web01", pattern: "web", want: b + "web" + r + "01"},
+		{name: "case is ignored", text: "Web01", pattern: "web", want: b + "Web" + r + "01"},
+		// The subsequence case, which is the one a reader cannot otherwise
+		// explain: three scattered letters, each picked out where it matched.
+		{
+			name:    "a subsequence marks each run separately",
+			text:    "bio-pipe-staging",
+			pattern: "bps",
+			want:    b + "b" + r + "io-" + b + "p" + r + "ipe-" + b + "s" + r + "taging",
+		},
+		{name: "consecutive matches coalesce", text: "abcdef", pattern: "abc", want: b + "abc" + r + "def"},
+		// The case that put a bold character on a row for no reason: the text
+		// holds part of the pattern and not the rest of it, which is what a
+		// clipped label and a detail match both look like from here.
+		{name: "a partial match marks nothing", text: "bio-pipe-server", pattern: "staging", want: "bio-pipe-server"},
+		{name: "a pattern longer than the text marks nothing", text: "web", pattern: "web01", want: "web"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := highlight(p, tc.text, tc.pattern); got != tc.want {
+				t.Errorf("highlight(%q, %q) = %q, want %q", tc.text, tc.pattern, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestHighlightWithoutColour keeps a piped or NO_COLOR run byte for byte what
+// it was before, since the highlight is the only reason to rewrite the label.
+func TestHighlightWithoutColour(t *testing.T) {
+	t.Parallel()
+	if got := highlight(NewPalette(false), "web01", "web"); got != "web01" {
+		t.Errorf("highlight() = %q, want the text unchanged", got)
+	}
+}
+
+// TestHighlightDim keeps the detail readable as one dimmed run with the match
+// standing out of it. A bold run resets every attribute, so the dim has to be
+// reopened after one rather than wrapped around the lot.
+func TestHighlightDim(t *testing.T) {
+	t.Parallel()
+	const bold, dim, reset = "\x1b[1m", "\x1b[2m", "\x1b[0m"
+	p := NewPalette(true)
+
+	tests := []struct {
+		name    string
+		text    string
+		pattern string
+		want    string
+	}{
+		{
+			name:    "no pattern dims the whole detail",
+			text:    "10.0.0.15",
+			pattern: "",
+			want:    dim + "10.0.0.15" + reset,
+		},
+		{
+			name:    "a match is bold and the rest stays dim",
+			text:    "deploy@10.0.0.15",
+			pattern: "deploy",
+			want:    bold + "deploy" + reset + dim + "@10.0.0.15" + reset,
+		},
+		{
+			name:    "a partial match leaves the detail plainly dim",
+			text:    "deploy@10.0.0.15",
+			pattern: "zzz",
+			want:    dim + "deploy@10.0.0.15" + reset,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := highlightDim(p, tc.text, tc.pattern); got != tc.want {
+				t.Errorf("highlightDim(%q, %q) = %q, want %q", tc.text, tc.pattern, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRowMarksTheDetailItMatched is the guard for a row that is in the list
+// because of its detail. Marking the label instead points at characters that
+// had nothing to do with the match.
+func TestRowMarksTheDetailItMatched(t *testing.T) {
+	t.Parallel()
+	item := Item{Label: "jump-box", Detail: "deploy@10.0.0.15"}
+
+	got := row(NewPalette(true), item, "deploy", 10, 40)
+
+	label, detail, found := strings.Cut(got, "  ")
+	if !found {
+		t.Fatalf("row() = %q, want a label and a detail", got)
+	}
+	if strings.Contains(label, "\x1b[1m") {
+		t.Errorf("label = %q, want nothing marked in it", label)
+	}
+	if !strings.Contains(detail, "\x1b[1m"+"deploy") {
+		t.Errorf("detail = %q, want the matched text marked", detail)
+	}
+}
+
+// TestRowHighlightDoesNotMoveTheDetail is the guard for measuring widths on the
+// plain label: escape bytes must not count towards the column.
+func TestRowHighlightDoesNotMoveTheDetail(t *testing.T) {
+	t.Parallel()
+	item := Item{Label: "web01", Detail: "10.0.0.15"}
+
+	plain := stripANSI(row(NewPalette(true), item, "", 12, 40))
+	marked := stripANSI(row(NewPalette(true), item, "web", 12, 40))
+
+	if plain != marked {
+		t.Errorf("with a filter the row reads %q, want %q as without one", marked, plain)
 	}
 }

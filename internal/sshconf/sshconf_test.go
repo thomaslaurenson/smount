@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -193,7 +194,6 @@ func TestParseResolved(t *testing.T) {
 		"user deploy\n" +
 		"port 2222\n" +
 		"identityfile ~/.ssh/id_ed25519\n" +
-		"identityfile ~/.ssh/id_rsa\n" +
 		"forwardagent no\n")
 
 	got := parseResolved("web01", out)
@@ -202,7 +202,6 @@ func TestParseResolved(t *testing.T) {
 		HostName: "10.0.0.4",
 		User:     "deploy",
 		Port:     "2222",
-		Identity: "~/.ssh/id_ed25519",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseResolved() = %+v, want %+v", got, want)
@@ -214,29 +213,6 @@ func TestParseResolvedDefaultsHostName(t *testing.T) {
 	got := parseResolved("web01", []byte("user deploy\n"))
 	if got.HostName != "web01" {
 		t.Errorf("HostName = %q, want %q", got.HostName, "web01")
-	}
-}
-
-func TestHostAddr(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		host Host
-		want string
-	}{
-		{name: "user and host", host: Host{HostName: "h", User: "u", Port: "22"}, want: "u@h"},
-		{name: "non default port", host: Host{HostName: "h", User: "u", Port: "2222"}, want: "u@h:2222"},
-		{name: "no user", host: Host{HostName: "h", Port: "22"}, want: "h"},
-		{name: "no port", host: Host{HostName: "h", User: "u"}, want: "u@h"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := tc.host.Addr(); got != tc.want {
-				t.Errorf("Addr() = %q, want %q", got, tc.want)
-			}
-		})
 	}
 }
 
@@ -331,6 +307,7 @@ func writeTree(t *testing.T, files map[string]string) string {
 }
 
 func TestResolveWorkers(t *testing.T) {
+	t.Parallel()
 	cap := resolveWorkers(1 << 20)
 	if cap > resolveWorkerCap {
 		t.Errorf("resolveWorkers(large) = %d, want at most %d", cap, resolveWorkerCap)
@@ -400,14 +377,44 @@ func TestResolveAllFinishesWhenEveryHostStalls(t *testing.T) {
 	}
 
 	start := time.Now()
-	got := ResolveAll(t.Context(), aliases)
+	got, defaults := ResolveAll(t.Context(), aliases)
 	elapsed := time.Since(start)
 
 	if len(got) != 0 {
 		t.Errorf("ResolveAll() resolved %d hosts, want none", len(got))
 	}
+	if defaults != nil {
+		t.Errorf("ResolveAll() baseline = %+v, want nil when the probe stalls too", defaults)
+	}
 	if elapsed > ResolveTimeout*3 {
 		t.Errorf("ResolveAll() took %v, want it bounded near %v", elapsed, ResolveTimeout)
+	}
+}
+
+// TestResolveAllRunsTheBaselineBesideTheHosts is the guard for the baseline
+// overlapping rather than queueing. Run in turn its wait is added to a listing
+// that has already finished, which doubles the wall clock of a config whose
+// hosts are slow to resolve.
+func TestResolveAllRunsTheBaselineBesideTheHosts(t *testing.T) {
+	stubSSH(t, "1")
+
+	start := time.Now()
+	got, defaults := ResolveAll(t.Context(), []string{"web01", "db-prod"})
+	elapsed := time.Since(start)
+
+	if len(got) != 2 {
+		t.Errorf("ResolveAll() resolved %d hosts, want 2", len(got))
+	}
+	if defaults == nil {
+		t.Fatal("ResolveAll() baseline = nil, want the probe resolved")
+	}
+	if defaults.HostName != "stub.example" {
+		t.Errorf("baseline HostName = %q, want %q", defaults.HostName, "stub.example")
+	}
+	// Two seconds is the sequential cost of one second of hosts followed by
+	// one second of baseline. Anything near it means they did not overlap.
+	if elapsed > 1900*time.Millisecond {
+		t.Errorf("ResolveAll() took %v, want the baseline resolved alongside the hosts", elapsed)
 	}
 }
 
@@ -421,5 +428,97 @@ func TestResolveSucceedsInsideTheTimeout(t *testing.T) {
 	}
 	if host.HostName != "stub.example" {
 		t.Errorf("HostName = %q, want %q", host.HostName, "stub.example")
+	}
+}
+
+func TestHostDescribe(t *testing.T) {
+	t.Parallel()
+	// What ssh reports for a host the config says nothing about: the local
+	// account and the standard port.
+	plain := &Host{Name: defaultsProbe, User: "thomas", Port: "22"}
+	// A config with a "Host *" block, where the shared user and port are the
+	// uninteresting ones and the local account never appears.
+	global := &Host{Name: defaultsProbe, User: "tlau083", Port: "2202"}
+
+	tests := []struct {
+		name     string
+		host     Host
+		defaults *Host
+		want     string
+	}{
+		{
+			name:     "an alias that resolves to itself says nothing",
+			host:     Host{Name: "web01", HostName: "web01", User: "thomas", Port: "22"},
+			defaults: plain,
+			want:     "",
+		},
+		{
+			name:     "a different hostname is worth showing",
+			host:     Host{Name: "nesi", HostName: "login.mahuika.nesi.org.nz", User: "thomas", Port: "22"},
+			defaults: plain,
+			want:     "login.mahuika.nesi.org.nz",
+		},
+		{
+			// The name comes back with it, because a bare "tlau083@" reads as
+			// an address someone forgot to finish.
+			name:     "a different user keeps the name beside it",
+			host:     Host{Name: "compute-01", HostName: "compute-01", User: "tlau083", Port: "22"},
+			defaults: plain,
+			want:     "tlau083@compute-01",
+		},
+		{
+			name:     "a non-default port keeps the name beside it",
+			host:     Host{Name: "web01", HostName: "web01", User: "thomas", Port: "2222"},
+			defaults: plain,
+			want:     "web01:2222",
+		},
+		{
+			name:     "everything different at once",
+			host:     Host{Name: "web01", HostName: "10.0.0.15", User: "deploy", Port: "2222"},
+			defaults: plain,
+			want:     "deploy@10.0.0.15:2222",
+		},
+		{
+			// The case the local account could not answer: with "Host *" setting
+			// a user, every host resolves to it, and repeating it on every row
+			// says nothing about any of them.
+			name:     "a user shared by the whole config is not worth showing",
+			host:     Host{Name: "web01", HostName: "web01", User: "tlau083", Port: "2202"},
+			defaults: global,
+			want:     "",
+		},
+		{
+			name:     "a host overriding the shared user still shows it",
+			host:     Host{Name: "web01", HostName: "web01", User: "deploy", Port: "2202"},
+			defaults: global,
+			want:     "deploy@web01",
+		},
+		{
+			// Failing to resolve the baseline leaves the user in. Showing too
+			// much can be read past; hiding a real setting cannot.
+			name:     "no baseline shows the user",
+			host:     Host{Name: "web01", HostName: "web01", User: "thomas", Port: "22"},
+			defaults: nil,
+			want:     "thomas@web01",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.host.Describe(tc.defaults); got != tc.want {
+				t.Errorf("Describe() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDefaultsProbeMatchesNothingReal guards the probe alias. A name a config
+// could plausibly define would return that host's settings as the baseline and
+// suppress them everywhere.
+func TestDefaultsProbeMatchesNothingReal(t *testing.T) {
+	t.Parallel()
+	if !strings.HasSuffix(defaultsProbe, ".invalid") {
+		t.Errorf("defaultsProbe = %q, want a name under the reserved .invalid", defaultsProbe)
 	}
 }

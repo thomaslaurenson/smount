@@ -222,12 +222,14 @@ func cleanupTarget(target string) {
 	_ = os.Remove(target)
 }
 
-// ownsTarget reports whether target is a mount point smount derived, meaning it
-// sits directly under the configured mount base.
+// ownsTarget reports whether target sits directly under base, which is what
+// makes a mount point smount's own to remove once it is detached.
 //
-// A mount point named with --at is the user's own directory. Removing it on
-// unmount would delete something smount was only borrowing, so ownership is
-// decided by where the directory sits rather than by it being empty.
+// Ownership is decided by where the directory sits, rather than by it being
+// empty or by which flag named it. A mount point anywhere else is one smount
+// was only borrowing, and removing it would delete a directory the user keeps.
+// One given with --at that lands under the base is indistinguishable from a
+// derived one and is tidied away with the rest.
 func ownsTarget(target, base string) bool {
 	if base == "" {
 		return false

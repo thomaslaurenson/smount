@@ -72,6 +72,16 @@ func (m Mount) Describe() string {
 	return describeSource(m.Host, m.Path)
 }
 
+// UnderBase reports whether this mount point sits directly under base, which is
+// where smount derives one.
+//
+// This asks about the path rather than about how the mount was made. Nothing
+// records which flag named a mount point, and a --at path landing under the
+// base is the same string a derived one would be, so it counts as derived.
+func (m Mount) UnderBase(base string) bool {
+	return ownsTarget(m.Target, base)
+}
+
 // Active returns every sshfs mount visible to this process.
 //
 // Mounts are sorted by mount point.
