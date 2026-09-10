@@ -307,6 +307,7 @@ func writeTree(t *testing.T, files map[string]string) string {
 }
 
 func TestResolveWorkers(t *testing.T) {
+	t.Parallel()
 	cap := resolveWorkers(1 << 20)
 	if cap > resolveWorkerCap {
 		t.Errorf("resolveWorkers(large) = %d, want at most %d", cap, resolveWorkerCap)

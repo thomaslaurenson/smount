@@ -64,6 +64,7 @@ func TestBuildLayersOptions(t *testing.T) {
 	cfg := testConfig("", "/mnt")
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := build(cfg, "web01", "/var/log", "/mnt/x", tc.favOpts, Options{Extra: tc.extra})
 			if !reflect.DeepEqual(got.Options, tc.want) {
 				t.Errorf("Options = %v, want %v", got.Options, tc.want)
@@ -127,6 +128,7 @@ func TestBuildMountPoint(t *testing.T) {
 	cfg := testConfig("", "/mnt")
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := build(cfg, tc.host, tc.path, tc.mountpoint, nil, Options{At: tc.at})
 			if got.Target != tc.want {
 				t.Errorf("Target = %q, want %q", got.Target, tc.want)
@@ -180,6 +182,7 @@ func TestFromFavourite(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if got := FromFavourite(cfg, &tc.fav, tc.opts); got.Target != tc.want {
 				t.Errorf("Target = %q, want %q", got.Target, tc.want)
 			}
@@ -209,6 +212,7 @@ func TestFromFavouriteReadOnlyIsAdditive(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fav := favourites.Favourite{Name: "logs", Host: "web01", ReadOnly: tc.favRO}
 			got := FromFavourite(cfg, &fav, Options{ReadOnly: tc.flagRO})
 			if got.ReadOnly != tc.want {
@@ -250,6 +254,7 @@ func TestResolve(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			spec, fromSaved, err := Resolve(cfg, store, tc.arg, Options{})
 			if tc.wantErr {
 				if err == nil {
@@ -276,6 +281,7 @@ func TestFavouriteFor(t *testing.T) {
 	cfg := testConfig(home, "~/sshfs")
 
 	t.Run("keeps only the command line option layer", func(t *testing.T) {
+		t.Parallel()
 		spec := ForHost(cfg, "web01", "/var/log", Options{Extra: []string{"debug"}})
 
 		got := FavouriteFor(cfg, spec, "logs", Options{Extra: []string{"debug"}})
@@ -289,6 +295,7 @@ func TestFavouriteFor(t *testing.T) {
 	})
 
 	t.Run("does not pin a mount point it would derive anyway", func(t *testing.T) {
+		t.Parallel()
 		spec := ForHost(cfg, "web01", "", Options{At: filepath.Join(string(home), "sshfs", "logs")})
 
 		got := FavouriteFor(cfg, spec, "logs", Options{})
@@ -299,6 +306,7 @@ func TestFavouriteFor(t *testing.T) {
 	})
 
 	t.Run("pins a mount point that differs from the derived one", func(t *testing.T) {
+		t.Parallel()
 		spec := ForHost(cfg, "web01", "", Options{At: filepath.Join(string(home), "elsewhere")})
 
 		got := FavouriteFor(cfg, spec, "logs", Options{})
@@ -311,6 +319,7 @@ func TestFavouriteFor(t *testing.T) {
 	// A mount point outside the home directory has no ~ form, so it is pinned
 	// as the absolute path it already is.
 	t.Run("pins an absolute mount point outside home unchanged", func(t *testing.T) {
+		t.Parallel()
 		spec := ForHost(cfg, "web01", "", Options{At: "/srv/logs"})
 
 		got := FavouriteFor(cfg, spec, "logs", Options{})
@@ -341,6 +350,7 @@ func TestFavouriteForRoundTrip(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			spec := ForHost(cfg, "web01", "/var/log", tc.opts)
 			fav := FavouriteFor(cfg, spec, "logs", tc.opts)
 

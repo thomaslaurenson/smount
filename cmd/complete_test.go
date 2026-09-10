@@ -50,6 +50,7 @@ func TestCompleteTargets(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got, directive := a.completeTargets(cmdWithContext(t), tc.args, tc.toComplete)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("completeTargets(%v, %q) = %v, want %v", tc.args, tc.toComplete, got, tc.want)
@@ -91,6 +92,7 @@ func TestCompletersNeverFallBackToFilenames(t *testing.T) {
 
 	for name, complete := range completers {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			for _, args := range [][]string{nil, {"one"}, {"one", "two"}} {
 				_, directive := complete(cmdWithContext(t), args, "")
 				if directive&cobra.ShellCompDirectiveError != 0 {

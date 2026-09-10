@@ -117,6 +117,7 @@ var threeItems = []Item{
 }
 
 func TestSelectReturnsTheItemUnderTheCursor(t *testing.T) {
+	t.Parallel()
 	got := runSelect(t, t.Context(), threeItems, "\r")
 	if got.err != nil {
 		t.Fatalf("Select() error = %v", got.err)
@@ -132,6 +133,7 @@ func TestSelectReturnsTheItemUnderTheCursor(t *testing.T) {
 // The index is into the original slice, not into the filtered view, which is
 // what makes a filtered choice point at the right item.
 func TestSelectFiltersThenReturnsTheOriginalIndex(t *testing.T) {
+	t.Parallel()
 	got := runSelect(t, t.Context(), threeItems, "data", "\r")
 	if got.err != nil {
 		t.Fatalf("Select() error = %v", got.err)
@@ -142,6 +144,7 @@ func TestSelectFiltersThenReturnsTheOriginalIndex(t *testing.T) {
 }
 
 func TestSelectBackspaceWidensTheFilter(t *testing.T) {
+	t.Parallel()
 	// "webX" matches nothing, so the choice only succeeds once the X is gone.
 	got := runSelect(t, t.Context(), threeItems, "webX", "\x7f", "\r")
 	if got.err != nil {
@@ -153,6 +156,7 @@ func TestSelectBackspaceWidensTheFilter(t *testing.T) {
 }
 
 func TestSelectMovesTheCursor(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		keys []string
@@ -167,6 +171,7 @@ func TestSelectMovesTheCursor(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := runSelect(t, t.Context(), threeItems, tc.keys...)
 			if got.err != nil {
 				t.Fatalf("Select() error = %v", got.err)
@@ -179,6 +184,7 @@ func TestSelectMovesTheCursor(t *testing.T) {
 }
 
 func TestSelectCancels(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		key  string
@@ -190,6 +196,7 @@ func TestSelectCancels(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := runSelect(t, t.Context(), threeItems, tc.key)
 			if !errors.Is(got.err, ErrCancelled) {
 				t.Errorf("Select() error = %v, want %v", got.err, ErrCancelled)
@@ -204,6 +211,7 @@ func TestSelectCancels(t *testing.T) {
 // Enter with nothing matching has nothing to return, so the menu stays up
 // rather than choosing something the filter excluded.
 func TestSelectIgnoresEnterWithNoMatch(t *testing.T) {
+	t.Parallel()
 	got := runSelect(t, t.Context(), threeItems, "zzz", "\r", "\x7f\x7f\x7f", "\r")
 	if got.err != nil {
 		t.Fatalf("Select() error = %v", got.err)
@@ -219,6 +227,7 @@ func TestSelectIgnoresEnterWithNoMatch(t *testing.T) {
 // A cancelled context has to end the menu even though nobody has pressed a key,
 // because the work the menu is asking about has already stopped.
 func TestSelectReturnsWhenTheContextIsCancelled(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(100 * time.Millisecond)
@@ -232,6 +241,7 @@ func TestSelectReturnsWhenTheContextIsCancelled(t *testing.T) {
 }
 
 func TestSelectRefusesWithNothingToChooseFrom(t *testing.T) {
+	t.Parallel()
 	_, slave := newPTY(t)
 	u := New(slave, &strings.Builder{}, true, TerminalSize(slave), NewPalette(true))
 
@@ -241,6 +251,7 @@ func TestSelectRefusesWithNothingToChooseFrom(t *testing.T) {
 }
 
 func TestSelectRefusesWithoutATerminal(t *testing.T) {
+	t.Parallel()
 	_, slave := newPTY(t)
 	u := New(slave, &strings.Builder{}, false, TerminalSize(slave), NewPalette(true))
 
