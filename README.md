@@ -71,18 +71,31 @@ Completion offers favourite names, host aliases and active mount names.
 
 ### Flags
 
+`--color` is the only flag every subcommand takes. Only `auto` looks at the stream and at `NO_COLOR`.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--color` | When to colour output: `auto`, `always` or `never` | `auto` |
+
+The flags that shape a mount go on the bare invocation, `smount [target]`, so `smount ls --ro` is an unknown flag rather than a quiet no-op.
+
 | Flag | Description | Default |
 |---|---|---|
 | `--at` | Mount point to use instead of the derived one | |
-| `--opt`, `-o` | Additional sshfs option (repeatable) | |
+| `--opt`, `-o` | Additional sshfs option, repeatable | |
 | `--ro` | Mount read only | `false` |
 | `--yes`, `-y` | Skip the confirmation prompt | `false` |
 | `--dry-run` | Print the sshfs command instead of running it | `false` |
 | `--no-save` | Do not offer to save the mount as a favourite | `false` |
 
-`--color` applies to every subcommand and takes `auto`, `always` or `never`, defaulting to `auto`. Only `auto` looks at the stream and at `NO_COLOR`.
+The rest belong to one subcommand each, and are all off unless given.
 
-`smount umount` takes `--all` to unmount everything, and `--force` to lazily unmount a dropped connection. `smount ls` and `smount hosts` both take `--short` (`-s`) to print bare names, one per line, for scripting.
+| Command | Flag | Description |
+|---|---|---|
+| `umount` | `--all` | Unmount every active sshfs mount |
+| `umount` | `--force`, `-f` | Unmount lazily, which is what clears a mount whose connection has dropped |
+| `ls` | `--short`, `-s` | Print mount names only, without the table |
+| `hosts` | `--short`, `-s` | Print host names only, without resolving them |
 
 A favourite is saved from a mount rather than declared: once an ad hoc mount succeeds, smount offers to keep it, and the `--at`, `--opt` and `--ro` that mount used are saved with it. Favourites can also be written straight into `favourites.json`.
 
