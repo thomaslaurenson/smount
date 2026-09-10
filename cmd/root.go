@@ -3,12 +3,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/thomaslaurenson/smount/internal/mount"
 	"github.com/thomaslaurenson/smount/internal/tilde"
 	"github.com/thomaslaurenson/smount/internal/ui"
 )
@@ -64,6 +66,13 @@ type App struct {
 	// colour is the --color flag, as typed.
 	colour string
 
+	// mounts reads the active sshfs mounts.
+	//
+	// It is a field rather than a direct call so that a test can hand the
+	// command tree a table of its own. Nothing else can: mount.Active reads the
+	// kernel's own mount table, and only a real sshfs mount appears in it.
+	mounts func(context.Context) ([]mount.Mount, error)
+
 	// tableWidth is what the tables on stdout fit themselves to, or zero when
 	// stdout is not a terminal. It is asked of stdout rather than stderr
 	// because a table is the answer, and the answer's stream is the one whose
@@ -109,11 +118,22 @@ func (a *App) buildUI() error {
 // What smount knows about the terminal, including whether it may prompt, is
 // settled once in buildUI and handed to the UI from there.
 func NewRootCmd(home string, in *os.File, out, errw io.Writer) *cobra.Command {
-	a := &App{
-		home: tilde.Home(home),
-		in:   in,
-		errw: errw,
+	return newApp(home, in, errw).rootCmd(out)
+}
+
+// newApp settles the dependencies every subcommand shares.
+func newApp(home string, in *os.File, errw io.Writer) *App {
+	return &App{
+		home:   tilde.Home(home),
+		in:     in,
+		errw:   errw,
+		mounts: mount.Active,
 	}
+}
+
+// rootCmd builds the command tree over a's dependencies, writing the answer to
+// out.
+func (a *App) rootCmd(out io.Writer) *cobra.Command {
 	opts := &mountOptions{}
 
 	root := &cobra.Command{
@@ -132,9 +152,9 @@ func NewRootCmd(home string, in *os.File, out, errw io.Writer) *cobra.Command {
 			return a.runMount(cmd, opts, args)
 		},
 	}
-	root.SetIn(in)
+	root.SetIn(a.in)
 	root.SetOut(out)
-	root.SetErr(errw)
+	root.SetErr(a.errw)
 	root.PersistentFlags().StringVar(&a.colour, "color", string(ui.ColourAuto),
 		"when to colour output: auto, always or never")
 	opts.register(root)

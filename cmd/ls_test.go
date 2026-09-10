@@ -61,21 +61,6 @@ func TestLsShort(t *testing.T) {
 	}
 }
 
-func TestUmountWithNothingToChoose(t *testing.T) {
-	t.Parallel()
-	home := writeHome(t, "")
-
-	// Without a terminal there is no picker, so this fails whether or not the
-	// machine running it has a mount.
-	stdout, _, err := run(t, home, "umount")
-	if err == nil {
-		t.Fatal("run() error = nil, want an error")
-	}
-	if stdout != "" {
-		t.Errorf("stdout = %q, want nothing written on a failure", stdout)
-	}
-}
-
 // TestLsRows is the guard for the cells the listing leaves empty, and for the
 // one it must not: a mount of a remote home directory has to name that
 // directory rather than repeating the name column.

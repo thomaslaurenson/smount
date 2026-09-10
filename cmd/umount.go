@@ -37,7 +37,7 @@ func (a *App) runUmount(ctx context.Context, args []string, all, force bool) err
 	if err != nil {
 		return err
 	}
-	mounts, err := mount.Active(ctx)
+	mounts, err := a.mounts(ctx)
 	if err != nil {
 		return err
 	}
