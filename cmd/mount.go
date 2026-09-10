@@ -60,7 +60,7 @@ func (a *App) runMount(cmd *cobra.Command, o *mountOptions, args []string) error
 		a.ui.Warnf("%v, so this command cannot be run here", err)
 	}
 
-	cfg, err := config.Load(a.home)
+	cfg, err := a.loadConfig()
 	if err != nil {
 		return err
 	}

@@ -22,7 +22,7 @@ func (a *App) newCheckCmd() *cobra.Command {
 		Short: "Check that everything smount needs is present and working",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCheck(cmd.Context(), cmd.OutOrStdout(), a.home)
+			return a.runCheck(cmd.Context(), cmd.OutOrStdout())
 		},
 	}
 }
@@ -37,21 +37,25 @@ type result struct {
 // runCheck reports on the environment and fails only when something would stop
 // a mount from working. A missing favourites file or an empty mount base are
 // normal on a new install, so they are reported without failing.
-func runCheck(ctx context.Context, out io.Writer, home tilde.Home) error {
+func (a *App) runCheck(ctx context.Context, out io.Writer) error {
+	home := a.home
 	var checks []result
 
 	checks = append(checks, binaryCheck("sshfs", "required to mount anything"))
 	checks = append(checks, binaryCheck("ssh", "required to resolve host settings"))
 	checks = append(checks, unmountToolCheck())
 
-	cfg, err := config.Load(home)
+	cfg, err := a.loadConfig()
 	if err != nil {
 		checks = append(checks, result{name: "config", detail: err.Error(), failed: true})
 		cfg = config.Defaults(home)
 	} else {
-		source := "defaults, no file written yet"
-		if config.Exists(home) {
-			source = home.Collapse(config.Path(home))
+		// loadConfig writes the file when it is absent, so it is still missing
+		// here only because that write failed, which it has already warned
+		// about. The report says which settings are in force either way.
+		source := home.Collapse(config.Path(home))
+		if !config.Exists(home) {
+			source = "defaults, " + source + " could not be written"
 		}
 		checks = append(checks, result{name: "config", detail: source})
 	}

@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/thomaslaurenson/smount/internal/config"
 	"github.com/thomaslaurenson/smount/internal/sshconf"
 	"github.com/thomaslaurenson/smount/internal/ui"
 )
@@ -24,7 +23,7 @@ func (a *App) newHostsCmd() *cobra.Command {
 			"first column.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := config.Load(a.home)
+			cfg, err := a.loadConfig()
 			if err != nil {
 				return err
 			}

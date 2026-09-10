@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/thomaslaurenson/smount/internal/config"
 	"github.com/thomaslaurenson/smount/internal/mount"
 	"github.com/thomaslaurenson/smount/internal/tilde"
 	"github.com/thomaslaurenson/smount/internal/ui"
@@ -43,7 +42,7 @@ func (a *App) newLsCmd() *cobra.Command {
 				return nil
 			}
 
-			cfg, err := config.Load(a.home)
+			cfg, err := a.loadConfig()
 			if err != nil {
 				return err
 			}

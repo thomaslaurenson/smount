@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/thomaslaurenson/smount/internal/config"
 )
 
 // writeHome builds a home directory holding an ssh config with two hosts, plus
@@ -178,5 +181,63 @@ func TestRootRejectsAnUnknownColourMode(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--color") {
 		t.Errorf("error = %v, want it to name the flag", err)
+	}
+}
+
+// TestFirstRunWritesTheConfigFile is the reason the defaults are written out at
+// all: changing the mount base or the option baseline needs a file to edit, and
+// one that has to be invented from the README is one nobody finds.
+func TestFirstRunWritesTheConfigFile(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	if _, _, err := run(t, home, "hosts"); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, config.DirName, "config.json"))
+	if err != nil {
+		t.Fatalf("reading the written config: %v", err)
+	}
+	var got config.Config
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("the written config does not parse: %v", err)
+	}
+	if got.MountBase != config.DefaultMountBase {
+		t.Errorf("mount_base = %q, want %q", got.MountBase, config.DefaultMountBase)
+	}
+	if got.SSHConfig != config.DefaultSSHConfig {
+		t.Errorf("ssh_config = %q, want %q", got.SSHConfig, config.DefaultSSHConfig)
+	}
+	if len(got.Options) == 0 {
+		t.Error("the written config names no mount options, so there is nothing to edit")
+	}
+}
+
+// An edited config has to survive the next run. Writing the defaults over one
+// would throw away the settings the file exists to hold.
+func TestAnExistingConfigIsNotOverwritten(t *testing.T) {
+	t.Parallel()
+	home := writeHome(t, "")
+
+	path := filepath.Join(home, config.DirName, "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("creating %s: %v", filepath.Dir(path), err)
+	}
+	edited := `{"mount_base":"~/elsewhere"}` + "\n"
+	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
+		t.Fatalf("writing the config: %v", err)
+	}
+
+	if _, _, err := run(t, home, "hosts"); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the config back: %v", err)
+	}
+	if string(data) != edited {
+		t.Errorf("config = %q, want the edited file left exactly as it was", data)
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/thomaslaurenson/smount/internal/config"
 	"github.com/thomaslaurenson/smount/internal/mount"
 	"github.com/thomaslaurenson/smount/internal/tilde"
 	"github.com/thomaslaurenson/smount/internal/ui"
@@ -103,6 +104,32 @@ func (a *App) buildUI() error {
 		ui.NewPalette(ui.ResolveColour(mode, os.Getenv("NO_COLOR") != "", os.Stderr)),
 	)
 	return nil
+}
+
+// loadConfig reads the settings, writing the defaults out when no file exists.
+//
+// The file is written so that there is something to edit. mount_base and the
+// mount option baseline are worth changing, and a config a user has to invent
+// from the README is one they never discover. Fields absent from the file keep
+// their default on load, so writing it freezes only the keys it names.
+//
+// A write that fails warns rather than stops. Every command that loads the
+// config runs perfectly well on the defaults, so a read-only home is a reason
+// to say so once and carry on rather than to refuse the command.
+//
+// Completion deliberately does not come through here: it runs on every tab
+// press and must leave nothing behind.
+func (a *App) loadConfig() (*config.Config, error) {
+	cfg, err := config.Load(a.home)
+	if err != nil {
+		return nil, err
+	}
+	if !config.Exists(a.home) {
+		if err := config.Save(cfg); err != nil {
+			a.ui.Warnf("could not write %s: %v", a.home.Collapse(config.Path(a.home)), err)
+		}
+	}
+	return cfg, nil
 }
 
 // NewRootCmd builds the command tree, reading answers from in and writing
