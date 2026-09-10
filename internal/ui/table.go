@@ -20,9 +20,13 @@ const tableMinColumn = 8
 // one reads as a path rather than as something cut short.
 const ellipsis = "..."
 
-// RenderTable writes headers and rows as aligned columns, fitted to width.
+// RenderTable writes headers and rows as aligned columns, fitted to a total
+// width.
 //
-// A width of zero lays the table out at its natural size and clips nothing,
+// The parameter is named total rather than width, which is the function that
+// measures a string in this package.
+//
+// A total of zero lays the table out at its natural size and clips nothing,
 // which is what a redirected or piped run wants: whatever is reading it is not
 // a person looking at a window.
 //
@@ -30,11 +34,11 @@ const ellipsis = "..."
 // left empty where a value would only repeat what another column already says,
 // so a run where nothing is unusual would otherwise print a heading over a
 // column of nothing and take that room from the columns that do differ.
-func RenderTable(w io.Writer, width int, headers []string, rows [][]string) error {
+func RenderTable(w io.Writer, total int, headers []string, rows [][]string) error {
 	headers, rows = dropEmptyColumns(headers, rows)
 	widths := naturalWidths(headers, rows)
-	if width > 0 {
-		fitColumns(widths, width)
+	if total > 0 {
+		fitColumns(widths, total)
 	}
 
 	var b strings.Builder
