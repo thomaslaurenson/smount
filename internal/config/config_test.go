@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/thomaslaurenson/smount/internal/tilde"
@@ -114,6 +115,38 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round trip = %+v, want %+v", got, want)
+	}
+}
+
+// Two smount processes starting at once in a fresh home both write the
+// defaults out. Writing in place let one of them read the other's half-written
+// file, so this is the guard for the write landing in one step.
+func TestConcurrentSaveAndLoad(t *testing.T) {
+	t.Parallel()
+	home := tilde.Home(t.TempDir())
+
+	const writers = 8
+	errs := make(chan error, writers*2)
+	var wg sync.WaitGroup
+	for range writers {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			errs <- Save(Defaults(home))
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := Load(home)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Errorf("concurrent save and load: %v", err)
+		}
 	}
 }
 
