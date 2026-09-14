@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Bring the release and prerelease workflows in line with the Go spec
+- Bring the repository in line with the Go spec
 
 ## 0.4.0 - 2026-09-10
 
