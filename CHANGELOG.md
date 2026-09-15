@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 - 2026-09-14
+
+### Changed
+
+- Bring the repository in line with the Go spec
+
 ## 0.4.0 - 2026-09-10
 
 ### Added
