@@ -139,8 +139,8 @@ func SSHFSPath() (string, error) {
 // Run creates the mount point and mounts the spec with sshfs.
 //
 // sshfs is given the caller's streams because it may need to prompt for a key
-// passphrase or a password, and its own diagnostics on failure are better than
-// anything that could be reconstructed from an exit status.
+// passphrase or a password. Its own diagnostics on failure say only that ssh
+// went away, so the error is built from ssh's log instead.
 //
 // Pass the process's own files here rather than a wrapper around them. os/exec
 // hands a *os.File to the child as a descriptor and gives anything else a pipe,
@@ -158,7 +158,11 @@ func Run(ctx context.Context, s Spec, in io.Reader, out, errw io.Writer) error {
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, bin, s.Args()...)
+	// Added here rather than in Args, which is also what --dry-run prints, so
+	// the command shown is one worth pasting rather than one tied to a log file
+	// that is about to be removed.
+	log := newSSHLog(s.Options)
+	cmd := exec.CommandContext(ctx, bin, append(s.Args(), log.args()...)...)
 	cmd.Stdin = in
 	cmd.Stdout = out
 	cmd.Stderr = errw
@@ -169,11 +173,11 @@ func Run(ctx context.Context, s Spec, in io.Reader, out, errw io.Writer) error {
 		if created {
 			cleanupTarget(s.Target)
 		}
-		// sshfs reports a failed ssh as a pipe error, so "connection reset by
-		// peer" is what a rejected key looks like here. ssh says why, and is
-		// the fastest way to find out.
-		return fmt.Errorf("mounting %s: %w, try 'ssh %s' to see why", s.Describe(), err, s.Host)
+		logged := log.lines()
+		log.remove(false)
+		return failure(s, err, logged)
 	}
+	log.remove(true)
 	return nil
 }
 

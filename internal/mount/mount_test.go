@@ -659,14 +659,34 @@ func TestUnmountKeepsTheDirectoryWhenTheToolFails(t *testing.T) {
 //
 // PATH is prepended rather than replaced: the stub is a shell script and still
 // needs the utilities it runs.
-func stubSSHFS(t *testing.T, fail bool) {
+//
+// logged stands in for what ssh writes to the log named by -E, with the
+// carriage returns ssh ends each line with. The stub returns the file it
+// writes its arguments to, one per line.
+//
+// TMPDIR is pointed at the test as well, so the log directory a successful
+// mount leaves behind is cleaned up with it.
+func stubSSHFS(t *testing.T, fail bool, logged ...string) (argsFile string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("stub relies on a shell script")
 	}
 
 	dir := t.TempDir()
-	script := "#!/bin/sh\n"
+	argsFile = filepath.Join(dir, "args")
+	loggedFile := filepath.Join(dir, "logged")
+	var lines strings.Builder
+	for _, line := range logged {
+		lines.WriteString(line + "\r\n")
+	}
+	if err := os.WriteFile(loggedFile, []byte(lines.String()), 0o600); err != nil {
+		t.Fatalf("writing stub log lines: %v", err)
+	}
+
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argsFile + "\n" +
+		"for arg; do\n" +
+		"\tcase $arg in 'ssh_command=ssh -E '*) cat " + loggedFile + " >> \"${arg#'ssh_command=ssh -E '}\" ;; esac\n" +
+		"done\n"
 	if fail {
 		script += "echo 'read: Connection reset by peer' >&2\nexit 1\n"
 	}
@@ -674,6 +694,212 @@ func stubSSHFS(t *testing.T, fail bool) {
 		t.Fatalf("writing stub: %v", err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMPDIR", t.TempDir())
+	return argsFile
+}
+
+// sshLogPath returns the log Run told the stub's ssh to write to, or "" when
+// it did not set one.
+func sshLogPath(t *testing.T, argsFile string) string {
+	t.Helper()
+	data, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("reading stub arguments: %v", err)
+	}
+	for arg := range strings.SplitSeq(string(data), "\n") {
+		if path, ok := strings.CutPrefix(arg, "ssh_command=ssh -E "); ok {
+			return path
+		}
+	}
+	return ""
+}
+
+// The YubiKey case: a security key that is absent logs the signing failure
+// and then the server's refusal, and the error has to lead with the first.
+func TestRunExplainsAFailureFromTheSSHLog(t *testing.T) {
+	signing := `sign_and_send_pubkey: signing failed for ED25519-SK "/home/u/.ssh/id_ed25519_sk": device not found`
+	argsFile := stubSSHFS(t, true, signing, "u@web01: Permission denied (publickey).")
+
+	spec := Spec{Host: "web01", Target: filepath.Join(t.TempDir(), "web01")}
+	err := Run(t.Context(), spec, strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("Run() error = nil, want the failure sshfs reported")
+	}
+	want := "mounting web01: the security key is not plugged in, insert it and try again\n    " + signing
+	if err.Error() != want {
+		t.Errorf("Run() error = %q, want %q", err, want)
+	}
+
+	// Nothing is left running to write to it, so the directory goes too.
+	path := sshLogPath(t, argsFile)
+	if path == "" {
+		t.Fatal("Run() did not point ssh's log at a file")
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Run() left the ssh log directory behind after a failure, stat err = %v", err)
+	}
+}
+
+// A log nothing explains is still better than sshfs's own message, so the end
+// of it is shown as it is.
+func TestRunShowsAnUnexplainedSSHLog(t *testing.T) {
+	stubSSHFS(t, true, "first", "second", "something new went wrong")
+
+	spec := Spec{Host: "web01", Target: filepath.Join(t.TempDir(), "web01")}
+	err := Run(t.Context(), spec, strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("Run() error = nil, want the failure sshfs reported")
+	}
+	want := "mounting web01: exit status 1, ssh logged:\n    first\n    second\n    something new went wrong"
+	if err.Error() != want {
+		t.Errorf("Run() error = %q, want %q", err, want)
+	}
+}
+
+// A mounted ssh holds the log open and a reconnect writes to it again by name,
+// so the file goes but the directory has to stay for the reconnect to work.
+func TestRunRemovesTheSSHLogAfterAMount(t *testing.T) {
+	argsFile := stubSSHFS(t, false, "Warning: Permanently added 'web01' (ED25519) to the list of known hosts.")
+
+	spec := Spec{Host: "web01", Target: filepath.Join(t.TempDir(), "web01")}
+	if err := Run(t.Context(), spec, strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	path := sshLogPath(t, argsFile)
+	if path == "" {
+		t.Fatal("Run() did not point ssh's log at a file")
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Run() left the ssh log behind after a mount, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); err != nil {
+		t.Errorf("Run() removed the directory a reconnect writes its log to: %v", err)
+	}
+}
+
+// sshfs takes the last ssh_command it is given, so adding one would quietly
+// replace the user's own.
+func TestRunLeavesTheUsersSSHCommand(t *testing.T) {
+	argsFile := stubSSHFS(t, false)
+
+	spec := Spec{Host: "web01", Target: filepath.Join(t.TempDir(), "web01"), Options: []string{"reconnect,ssh_command=myssh"}}
+	if err := Run(t.Context(), spec, strings.NewReader(""), io.Discard, io.Discard); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if path := sshLogPath(t, argsFile); path != "" {
+		t.Errorf("Run() set ssh's log to %s over the user's ssh_command", path)
+	}
+}
+
+func TestDiagnose(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		logged       []string
+		wantReason   string
+		wantEvidence string
+	}{
+		{
+			name:         "the agent refuses a key",
+			logged:       []string{`sign_and_send_pubkey: signing failed for ED25519-SK "/home/u/.ssh/id_ed25519_sk" from agent: agent refused operation`, "u@web01: Permission denied (publickey)."},
+			wantReason:   "the ssh agent refused to use the key, check a security key is plugged in and touched in time",
+			wantEvidence: `sign_and_send_pubkey: signing failed for ED25519-SK "/home/u/.ssh/id_ed25519_sk" from agent: agent refused operation`,
+		},
+		{
+			name: "a private key others can read",
+			logged: []string{
+				"@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @",
+				"Permissions 0644 for '/home/u/.ssh/id_ed25519' are too open.",
+				`Load key "/home/u/.ssh/id_ed25519": bad permissions`,
+				"u@web01: Permission denied (publickey).",
+			},
+			wantReason:   "ssh ignored /home/u/.ssh/id_ed25519 because others can read it, run 'chmod 600 /home/u/.ssh/id_ed25519'",
+			wantEvidence: "Permissions 0644 for '/home/u/.ssh/id_ed25519' are too open.",
+		},
+		{
+			name:         "the server refuses every key",
+			logged:       []string{"u@web01: Permission denied (publickey,password)."},
+			wantReason:   "the server rejected the login (it accepts publickey,password), 'ssh -v' shows which keys were offered",
+			wantEvidence: "u@web01: Permission denied (publickey,password).",
+		},
+		{
+			name: "a changed host key names the known_hosts entry",
+			logged: []string{
+				"@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @",
+				"Offending ED25519 key in /home/u/.ssh/known_hosts:12",
+				"Host key verification failed.",
+			},
+			wantReason:   "the host key has changed since /home/u/.ssh/known_hosts:12 recorded it, find out why before replacing it",
+			wantEvidence: "Offending ED25519 key in /home/u/.ssh/known_hosts:12",
+		},
+		{
+			name:         "a host key that is not trusted yet",
+			logged:       []string{"Host key verification failed."},
+			wantReason:   "the host key is not trusted yet, connect with ssh once to check and accept it",
+			wantEvidence: "Host key verification failed.",
+		},
+		{
+			name:         "a name that does not resolve",
+			logged:       []string{"ssh: Could not resolve hostname web01.example: Name or service not known"},
+			wantReason:   "web01.example does not resolve, check the name, its HostName, DNS or the VPN",
+			wantEvidence: "ssh: Could not resolve hostname web01.example: Name or service not known",
+		},
+		{
+			name:         "a refused connection names the port",
+			logged:       []string{"ssh: connect to host 10.0.0.5 port 2222: Connection refused"},
+			wantReason:   "10.0.0.5 refused the connection on port 2222, check the port and that sshd is running",
+			wantEvidence: "ssh: connect to host 10.0.0.5 port 2222: Connection refused",
+		},
+		{
+			name:         "a host that does not answer",
+			logged:       []string{"ssh: connect to host 10.0.0.5 port 22: No route to host"},
+			wantReason:   "10.0.0.5 did not answer, check the network or the VPN",
+			wantEvidence: "ssh: connect to host 10.0.0.5 port 22: No route to host",
+		},
+		{
+			name:         "no algorithm in common",
+			logged:       []string{"Unable to negotiate with 10.0.0.5 port 22: no matching host key type found. Their offer: ssh-rsa"},
+			wantReason:   "ssh and the server could not agree, no matching host key type found",
+			wantEvidence: "Unable to negotiate with 10.0.0.5 port 22: no matching host key type found. Their offer: ssh-rsa",
+		},
+		{
+			name:         "a server without sftp",
+			logged:       []string{"subsystem request failed on channel 0"},
+			wantReason:   "the server does not offer sftp, which sshfs needs",
+			wantEvidence: "subsystem request failed on channel 0",
+		},
+		{
+			name:         "a connection cut before login",
+			logged:       []string{"kex_exchange_identification: Connection closed by remote host", "Connection closed by 10.0.0.5 port 22"},
+			wantReason:   "the server closed the connection before login, often rate limiting such as fail2ban, or a jump host that could not get through",
+			wantEvidence: "kex_exchange_identification: Connection closed by remote host",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			reason, evidence, ok := diagnose(tc.logged)
+			if !ok {
+				t.Fatalf("diagnose() found nothing in %q", tc.logged)
+			}
+			if reason != tc.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tc.wantReason)
+			}
+			if evidence != tc.wantEvidence {
+				t.Errorf("evidence = %q, want %q", evidence, tc.wantEvidence)
+			}
+		})
+	}
+}
+
+// A log that matches nothing has to fall through to showing the log itself
+// rather than guess.
+func TestDiagnoseFindsNothingInAnUnknownLog(t *testing.T) {
+	t.Parallel()
+	if reason, _, ok := diagnose([]string{"Warning: Permanently added 'web01' (ED25519) to the list of known hosts."}); ok {
+		t.Errorf("diagnose() = %q, want no explanation", reason)
+	}
 }
 
 // A mount point this call made is worth removing when the mount fails, so a
