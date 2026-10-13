@@ -105,19 +105,19 @@ An ad hoc mount is named after the host and the remote path:
 
 | Target | Mount point |
 |---|---|
-| `smount web01` | `~/sshfs/web01` |
-| `smount web01:/` | `~/sshfs/web01-root` |
-| `smount web01:/var/log` | `~/sshfs/web01-var-log` |
+| `smount web01` | `~/smount/web01` |
+| `smount web01:/` | `~/smount/web01-root` |
+| `smount web01:/var/log` | `~/smount/web01-var-log` |
 
-A favourite is named after itself, so `smount logs` mounts at `~/sshfs/logs` whatever host it points at. Override either with `--at`.
+A favourite is named after itself, so `smount logs` mounts at `~/smount/logs` whatever host it points at. Override either with `--at`.
 
 ## Configuration
 
-Both files live in `~/.smount` and are created on demand. The `config.json` file holds the defaults:
+Both files live in `~/smount`, the same directory mounts are created under, and are created on demand. The `config.json` file holds the defaults:
 
 ```json
 {
-  "mount_base": "~/sshfs",
+  "mount_base": "~/smount",
   "options": [
     "reconnect",
     "ServerAliveInterval=15",
@@ -151,7 +151,7 @@ The `favourites.json` file holds the saved targets:
 }
 ```
 
-Only `name` and `host` are required. `mountpoint` pins where the favourite mounts and is written only when it differs from the derived `~/sshfs/<name>`, so a favourite left alone still follows `mount_base` when that changes.
+Only `name` and `host` are required. `mountpoint` pins where the favourite mounts and is written only when it differs from the derived `~/smount/<name>`, so a favourite left alone still follows `mount_base` when that changes.
 
 Mount options are layered rather than replaced: `config.json` sets the baseline, a favourite adds to it, and `-o` on the command line comes last. sshfs takes the last value given for a repeated option, so later layers win.
 
@@ -160,3 +160,17 @@ Mount options are layered rather than replaced: `config.json` sets the baseline,
 Aliases are read from `ssh_config` and every file it reaches through `Include`, globs and relative paths included. Wildcard and negated patterns such as `Host *` are skipped, since they configure connections rather than name somewhere to connect to.
 
 `ssh_config` controls which file smount reads host *names* from, and nothing else. Connecting is left to `ssh` and `sshfs`. Pointing it at one fragment, say `~/.ssh/config.d/work`, therefore narrows the list smount offers without affecting how anything mounts.
+
+## When a mount fails
+
+sshfs throws away what ssh says when a connection fails, and reports every failure as `read: Connection reset by peer`. smount has ssh write its log to a temporary file for the length of the mount, and explains the failure from that instead:
+
+```text
+read: Connection reset by peer
+[!] mounting web01: the security key is not plugged in, insert it and try again
+    sign_and_send_pubkey: signing failed for ED25519-SK "/home/me/.ssh/id_ed25519_sk": device not found
+```
+
+It recognises a missing security key, a refused key or login, a key file with loose permissions, an unknown or changed host key, a name that does not resolve, a refused or unanswered connection, no algorithm in common, a server without sftp, and a server that closes the connection before login. Anything else is shown as the last lines ssh logged.
+
+The log is skipped when your options set their own `ssh_command`, since sshfs only uses one.

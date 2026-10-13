@@ -25,7 +25,7 @@ interactively, or name a target directly:
   smount logs                mount the favourite named "logs"
 
 Hosts come from ~/.ssh/config and every file it includes. Favourites and
-settings live in ~/.smount.`
+settings live in ~/smount.`
 
 // reservedNames returns the names a favourite must not use. A bare
 // "smount <name>" resolves a subcommand before it looks for a favourite, so a

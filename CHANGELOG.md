@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 - 2026-10-14
+
+### Added
+
+- Explain a failed mount from ssh's own log, such as a security key that is not plugged in
+
+### Changed
+
+- Move the config directory from ~/.smount to ~/smount, and make it the default mount base
+- Stop reading ~/.smount, so config.json and favourites.json have to be moved across by hand
+
 ## 0.5.0 - 2026-09-14
 
 ### Changed

@@ -155,7 +155,7 @@ func TestPathsExpandTilde(t *testing.T) {
 	home := tilde.Home(t.TempDir())
 
 	c := Defaults(home)
-	if got, want := c.MountBaseDir(), filepath.Join(string(home), "sshfs"); got != want {
+	if got, want := c.MountBaseDir(), filepath.Join(string(home), "smount"); got != want {
 		t.Errorf("MountBaseDir() = %q, want %q", got, want)
 	}
 	if got, want := c.SSHConfigPath(), filepath.Join(string(home), ".ssh/config"); got != want {

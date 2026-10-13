@@ -1,4 +1,4 @@
-// Package favourites stores named sshfs targets in ~/.smount/favourites.json.
+// Package favourites stores named sshfs targets in ~/smount/favourites.json.
 package favourites
 
 import (
