@@ -1,4 +1,4 @@
-// Package config loads and persists smount's settings from ~/.smount/config.json.
+// Package config loads and persists smount's settings from ~/smount/config.json.
 package config
 
 import (
@@ -13,10 +13,17 @@ import (
 
 const (
 	// DirName is smount's configuration directory, relative to the home directory.
-	DirName = ".smount"
+	//
+	// It is not hidden because it is also the default mount base, so the one
+	// directory holds both the settings and the mounts they describe.
+	DirName = "smount"
 
 	// DefaultMountBase is the directory that ad hoc mounts are created under.
-	DefaultMountBase = "~/sshfs"
+	//
+	// It is the configuration directory, which is safe to mount beside but never
+	// over: PrepareTarget refuses a directory that holds files, and this one
+	// holds config.json from the first run.
+	DefaultMountBase = "~/" + DirName
 
 	// DefaultSSHConfig is the OpenSSH client config that host discovery starts from.
 	DefaultSSHConfig = "~/.ssh/config"

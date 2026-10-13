@@ -105,19 +105,19 @@ An ad hoc mount is named after the host and the remote path:
 
 | Target | Mount point |
 |---|---|
-| `smount web01` | `~/sshfs/web01` |
-| `smount web01:/` | `~/sshfs/web01-root` |
-| `smount web01:/var/log` | `~/sshfs/web01-var-log` |
+| `smount web01` | `~/smount/web01` |
+| `smount web01:/` | `~/smount/web01-root` |
+| `smount web01:/var/log` | `~/smount/web01-var-log` |
 
-A favourite is named after itself, so `smount logs` mounts at `~/sshfs/logs` whatever host it points at. Override either with `--at`.
+A favourite is named after itself, so `smount logs` mounts at `~/smount/logs` whatever host it points at. Override either with `--at`.
 
 ## Configuration
 
-Both files live in `~/.smount` and are created on demand. The `config.json` file holds the defaults:
+Both files live in `~/smount`, the same directory mounts are created under, and are created on demand. The `config.json` file holds the defaults:
 
 ```json
 {
-  "mount_base": "~/sshfs",
+  "mount_base": "~/smount",
   "options": [
     "reconnect",
     "ServerAliveInterval=15",
@@ -151,7 +151,7 @@ The `favourites.json` file holds the saved targets:
 }
 ```
 
-Only `name` and `host` are required. `mountpoint` pins where the favourite mounts and is written only when it differs from the derived `~/sshfs/<name>`, so a favourite left alone still follows `mount_base` when that changes.
+Only `name` and `host` are required. `mountpoint` pins where the favourite mounts and is written only when it differs from the derived `~/smount/<name>`, so a favourite left alone still follows `mount_base` when that changes.
 
 Mount options are layered rather than replaced: `config.json` sets the baseline, a favourite adds to it, and `-o` on the command line comes last. sshfs takes the last value given for a repeated option, so later layers win.
 

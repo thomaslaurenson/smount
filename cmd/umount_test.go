@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thomaslaurenson/smount/internal/config"
 	"github.com/thomaslaurenson/smount/internal/mount"
+	"github.com/thomaslaurenson/smount/internal/tilde"
 )
 
 // None of the tests here calls t.Parallel. stubUnmountTool sets PATH through
@@ -89,7 +91,7 @@ func runWithMounts(t *testing.T, home string, mounts []mount.Mount, args ...stri
 func twoMounts(t *testing.T, home string) []mount.Mount {
 	t.Helper()
 
-	base := filepath.Join(home, "sshfs")
+	base := tilde.Home(home).Expand(config.DefaultMountBase)
 	// Sorted by mount point, which is the order mount.Active returns and so the
 	// order --all works through them in.
 	table := []mount.Mount{

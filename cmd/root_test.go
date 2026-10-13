@@ -33,7 +33,7 @@ func writeHome(t *testing.T, favs string) string {
 	}
 
 	if favs != "" {
-		smountDir := filepath.Join(home, ".smount")
+		smountDir := filepath.Join(home, config.DirName)
 		if err := os.MkdirAll(smountDir, 0o700); err != nil {
 			t.Fatalf("creating %s: %v", smountDir, err)
 		}
@@ -84,12 +84,12 @@ func TestRootMountDryRun(t *testing.T) {
 		{
 			name: "no flags mounts the remote home under the mount base",
 			args: []string{"web01", "--dry-run"},
-			want: []string{"sshfs", "web01:", filepath.Join(home, "sshfs", "web01")},
+			want: []string{"sshfs", "web01:", filepath.Join(home, "smount", "web01")},
 		},
 		{
 			name: "a remote path reaches the source and the mount point",
 			args: []string{"web01:/var/log", "--dry-run"},
-			want: []string{"web01:/var/log", filepath.Join(home, "sshfs", "web01-var-log")},
+			want: []string{"web01:/var/log", filepath.Join(home, "smount", "web01-var-log")},
 		},
 		{
 			name: "--ro adds the read only option",
@@ -263,7 +263,7 @@ func TestRootMountsAFavouriteByName(t *testing.T) {
 	}
 	// A favourite mounts under its own name, which is what lets two of them
 	// point at one machine.
-	if !strings.Contains(stdout, "sshfs/logs") {
+	if !strings.Contains(stdout, "smount/logs") {
 		t.Errorf("stdout = %q, want the mount point named after the favourite", stdout)
 	}
 }
